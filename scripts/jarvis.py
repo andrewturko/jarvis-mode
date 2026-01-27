@@ -16,6 +16,8 @@ CONFIG_FILE = SKILL_DIR / "config.json"
 STATE_FILE = SKILL_DIR / "state.json"
 PATTERNS_FILE = SKILL_DIR / "patterns.json"
 SNAPSHOT_DIR = SKILL_DIR / "snapshots"
+HOOKS_FILE = SKILL_DIR / "hooks.json"
+GATEWAY_URL = os.environ.get("CLAWDBOT_GATEWAY", "http://127.0.0.1:18789")
 
 # Environment - try env vars first, then clawdbot config
 def _get_ha_config():
@@ -545,6 +547,140 @@ def handle_occupied_room(room_name):
     }
 
 
+def setup_jarvis():
+    """
+    Self-register Jarvis hooks and cron job with Clawdbot.
+    - Hooks: patches ~/.clawdbot/clawdbot.json directly
+    - Cron: uses clawdbot cron CLI
+    """
+    results = {
+        "success": True,
+        "hooks": {"registered": False, "error": None},
+        "cron": {"registered": False, "error": None}
+    }
+    
+    # Load hooks definition
+    try:
+        with open(HOOKS_FILE) as f:
+            hooks_def = json.load(f)
+    except Exception as e:
+        return {"success": False, "error": f"Failed to load hooks.json: {e}"}
+    
+    # Get user config for channel/destination
+    config = get_config()
+    notify_channel = config.get("notifyChannel", "telegram")
+    
+    # Update hooks with channel from config
+    for mapping in hooks_def.get("hooks", {}).get("mappings", []):
+        mapping["channel"] = notify_channel
+    
+    # Patch hooks directly into clawdbot.json
+    clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+    try:
+        with open(clawdbot_config_path) as f:
+            clawdbot_config = json.load(f)
+        
+        # Ensure hooks section exists
+        if "hooks" not in clawdbot_config:
+            clawdbot_config["hooks"] = {"enabled": True, "mappings": []}
+        
+        clawdbot_config["hooks"]["enabled"] = True
+        
+        # Get existing mappings
+        existing_mappings = clawdbot_config["hooks"].get("mappings", [])
+        existing_ids = {m.get("id") for m in existing_mappings}
+        
+        # Add/update our hooks
+        for new_mapping in hooks_def["hooks"]["mappings"]:
+            if new_mapping["id"] in existing_ids:
+                # Update existing
+                for i, m in enumerate(existing_mappings):
+                    if m.get("id") == new_mapping["id"]:
+                        existing_mappings[i] = new_mapping
+                        break
+            else:
+                # Add new
+                existing_mappings.append(new_mapping)
+        
+        clawdbot_config["hooks"]["mappings"] = existing_mappings
+        
+        # Write back
+        with open(clawdbot_config_path, 'w') as f:
+            json.dump(clawdbot_config, f, indent=2)
+        
+        results["hooks"]["registered"] = True
+        results["hooks"]["note"] = "Restart gateway to apply hooks"
+        
+    except FileNotFoundError:
+        results["hooks"]["error"] = f"Clawdbot config not found at {clawdbot_config_path}"
+        results["success"] = False
+    except Exception as e:
+        results["hooks"]["error"] = str(e)
+        results["success"] = False
+    
+    # Register cron job via clawdbot cron CLI
+    cron_def = hooks_def.get("cron")
+    if cron_def:
+        try:
+            # Check if cron already exists
+            result = subprocess.run(
+                ["clawdbot", "cron", "list", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            existing_job = None
+            if result.returncode == 0:
+                try:
+                    data = json.loads(result.stdout)
+                    for job in data.get("jobs", []):
+                        if job.get("name") == cron_def["name"]:
+                            existing_job = job
+                            break
+                except:
+                    pass
+            
+            # Build CLI args
+            cron_expr = cron_def["schedule"].get("expr", "*/5 * * * *")
+            system_event = cron_def["payload"].get("text", "")
+            wake_mode = cron_def.get("wakeMode", "now")
+            
+            if existing_job:
+                # Remove and re-add (simpler than edit)
+                subprocess.run(
+                    ["clawdbot", "cron", "rm", existing_job["id"]],
+                    capture_output=True,
+                    timeout=10
+                )
+            
+            # Add job
+            result = subprocess.run([
+                "clawdbot", "cron", "add",
+                "--name", cron_def["name"],
+                "--cron", cron_expr,
+                "--wake", wake_mode,
+                "--system-event", system_event,
+                "--json"
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                results["cron"]["registered"] = True
+                results["cron"]["action"] = "updated" if existing_job else "created"
+            else:
+                results["cron"]["error"] = result.stderr or result.stdout or "Failed"
+                results["success"] = False
+                
+        except FileNotFoundError:
+            results["cron"]["error"] = "clawdbot CLI not found - is Clawdbot installed?"
+            results["success"] = False
+        except Exception as e:
+            results["cron"]["error"] = str(e)
+            results["success"] = False
+    
+    return results
+
+
 def poll_occupancy():
     """
     Poll all rooms for occupancy changes.
@@ -837,6 +973,13 @@ def main():
         for room in config.get("cameras", {}):
             occupancy[room] = get_motion_state(room)
         print(json.dumps({"occupancy": occupancy}))
+    
+    elif cmd == "setup":
+        # Self-register hooks and cron with Clawdbot
+        result = setup_jarvis()
+        print(json.dumps(result, indent=2))
+        if not result.get("success"):
+            sys.exit(1)
     
     elif cmd == "handle-empty":
         # Handle a room that became empty

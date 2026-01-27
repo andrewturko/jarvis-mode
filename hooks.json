@@ -1,0 +1,40 @@
+{
+  "description": "Jarvis Mode hooks for Clawdbot. Run 'jarvis.py setup' to register.",
+  "hooks": {
+    "mappings": [
+      {
+        "id": "jarvis-motion",
+        "match": {
+          "path": "/jarvis/motion"
+        },
+        "action": "agent",
+        "messageTemplate": "[Jarvis Motion] Person detected in {{room}}.\n\nRun `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py context {{room}} --manual`\n\nPerson detection already confirmed this is a PERSON (not a pet). The snapshot is for context — what they're doing, the environment — not to second-guess presence.\n\nYou are JARVIS. Based on context:\n- If something helpful to offer → speak naturally, brief\n- If nothing actionable → NO_REPLY (silence)\n\nNEVER dump debug info or config state. No bullet points. Speak like a person or say nothing.\n\nCleanup snapshot when done.",
+        "deliver": true,
+        "channel": "telegram"
+      },
+      {
+        "id": "jarvis-check",
+        "match": {
+          "path": "/jarvis/check"
+        },
+        "action": "agent",
+        "messageTemplate": "[Jarvis Check] {{room}}.\n\nRun `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py context {{room}} --manual`\n\nYou are JARVIS. Analyze and respond naturally — or stay silent if nothing useful.\n\nNEVER dump debug/config state. Speak like a person or say nothing.\n\nCleanup snapshot when done.",
+        "deliver": true,
+        "channel": "telegram"
+      }
+    ]
+  },
+  "cron": {
+    "name": "jarvis-poll",
+    "schedule": {
+      "kind": "cron",
+      "expr": "*/5 * * * *"
+    },
+    "sessionTarget": "main",
+    "wakeMode": "now",
+    "payload": {
+      "kind": "systemEvent",
+      "text": "Jarvis poll. Run `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py poll`.\n\nIf transitions detected, run handle-empty or handle-occupied for those rooms.\n\nIMPORTANT: You are Jarvis, not a log file. Either:\n- STAY SILENT (reply HEARTBEAT_OK) if nothing actionable\n- OR speak naturally like Tony Stark's AI: conversational, helpful, brief\n\nNEVER dump debug info, config state, or bullet points about what you checked. No one wants to read \"quietMode: true, autoActions.enabled: false\". That's not Jarvis, that's syslog.\n\nExamples of good responses:\n- Nothing happening: HEARTBEAT_OK (silence)\n- Room emptied, lights on: \"You left the kitchen lights on. Want me to get those?\"\n- Someone arrived: \"Evening. Settling in? I can dim these lights if you'd like.\"\n\nWhen in doubt, stay quiet."
+    }
+  }
+}
