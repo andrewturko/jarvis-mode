@@ -768,13 +768,12 @@
             <div class="setting-row">
                 <div>
                     <div class="setting-label">Active Hours</div>
-                    <div class="setting-desc">Only observe during these hours</div>
+                    <div class="setting-desc">Only observe during these hours (0-24)</div>
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="number" class="setting-input" id="startHour" value="0" min="0" max="24" style="width: 60px;">
+                    <input type="number" class="setting-input" id="startHour" value="0" min="0" max="24" style="width: 60px;" onchange="updateActiveHours()">
                     <span>to</span>
-                    <input type="number" class="setting-input" id="endHour" value="24" min="0" max="24" style="width: 60px;">
-                    <button class="btn btn-secondary btn-small" onclick="updateActiveHours()">Save</button>
+                    <input type="number" class="setting-input" id="endHour" value="24" min="0" max="24" style="width: 60px;" onchange="updateActiveHours()">
                 </div>
             </div>
         </div>
