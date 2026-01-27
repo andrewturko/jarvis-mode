@@ -326,6 +326,63 @@ jarvis.py cleanup             # Delete old snapshots
            └─────────────────┘
 ```
 
+## Voice Module (Experimental)
+
+Voice control via UniFi camera microphones. Say "Hey Jarvis" to activate.
+
+### Setup
+
+1. **Install dependencies**
+   ```bash
+   cd voice
+   pip install -r requirements.txt
+   ```
+
+2. **Configure cameras** in `voice-config.json`:
+   ```json
+   {
+     "unifi_protect": {
+       "nvr_ip": "192.168.1.1",
+       "rtsp_port": 7447
+     },
+     "cameras": {
+       "kitchen": {
+         "rtsp_path": "your_camera_id",
+         "speaker": "Kitchen"
+       }
+     }
+   }
+   ```
+
+3. **Get camera RTSP paths** from UniFi Protect console
+
+4. **Run the voice service**
+   ```bash
+   python3 voice/service.py
+   ```
+
+### Testing
+
+```bash
+# Test audio capture from camera
+python3 voice/service.py --test-audio --room kitchen
+
+# Test wake word from system mic
+python3 voice/service.py --test-wake
+```
+
+### Architecture
+
+```
+Camera Mic → RTSP → ffmpeg → Wake Word → STT → Clawdbot → TTS → Sonos
+```
+
+### Requirements
+
+- ffmpeg (system): `brew install ffmpeg`
+- openwakeword: Wake word detection
+- faster-whisper: Local speech-to-text
+
 ## Privacy & Security
 
 - **Local processing**: All logic runs on your machine

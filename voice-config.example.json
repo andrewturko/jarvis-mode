@@ -1,0 +1,54 @@
+{
+  "enabled": true,
+  "unifi_protect": {
+    "nvr_ip": "192.168.1.1",
+    "rtsp_port": 7447,
+    "username": "",
+    "password": ""
+  },
+  "wake_word": {
+    "engine": "openwakeword",
+    "model": "hey_jarvis_v0.1",
+    "threshold": 0.5,
+    "cooldown_seconds": 2
+  },
+  "stt": {
+    "engine": "faster-whisper",
+    "model": "base.en",
+    "device": "auto",
+    "compute_type": "int8",
+    "language": "en",
+    "capture_seconds": 7,
+    "silence_threshold": 0.5,
+    "silence_duration": 1.5
+  },
+  "audio": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_duration_ms": 100
+  },
+  "cameras": {
+    "kitchen": {
+      "rtsp_path": "CAMERA_ID_FROM_UNIFI_PROTECT",
+      "enabled": true,
+      "speaker": "Kitchen"
+    },
+    "living_room": {
+      "rtsp_path": "CAMERA_ID_FROM_UNIFI_PROTECT",
+      "enabled": true,
+      "speaker": "Living Room"
+    }
+  },
+  "tts": {
+    "enabled": true,
+    "engine": "sonos",
+    "default_volume": 30
+  },
+  "clawdbot": {
+    "enabled": true,
+    "gateway_url": "http://127.0.0.1:18789",
+    "hook_path": "/hooks/jarvis/voice",
+    "hook_token": "jarvis-motion-2026",
+    "timeout_seconds": 30
+  }
+}

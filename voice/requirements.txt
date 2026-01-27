@@ -1,0 +1,18 @@
+# Jarvis Voice Module Dependencies
+
+# Wake word detection
+openwakeword>=0.5.0
+
+# Speech-to-text (local)
+faster-whisper>=0.10.0
+
+# Audio processing
+numpy>=1.24.0
+sounddevice>=0.4.6  # For mic testing
+
+# Optional: OpenAI Whisper API
+# openai>=1.0.0
+
+# Note: ffmpeg must be installed system-wide
+# macOS: brew install ffmpeg
+# Ubuntu: sudo apt install ffmpeg

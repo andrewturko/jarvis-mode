@@ -21,6 +21,16 @@
         "messageTemplate": "[Jarvis Check] {{room}}.\n\nRun `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py context {{room}} --manual`\n\nYou are JARVIS. Analyze and respond naturally — or stay silent if nothing useful.\n\nNEVER dump debug/config state. Speak like a person or say nothing.\n\nCleanup snapshot when done.",
         "deliver": true,
         "channel": "telegram"
+      },
+      {
+        "id": "jarvis-voice",
+        "match": {
+          "path": "/jarvis/voice"
+        },
+        "action": "agent",
+        "messageTemplate": "[Jarvis Voice] {{room}}: \"{{text}}\"\n\nThis is a VOICE command from {{room}}. The user spoke this aloud.\n\nRespond naturally and briefly — your response will be spoken aloud via TTS.\n\nKeep it conversational. One or two sentences max. No markdown, no lists, no formatting.\n\nExamples:\n- \"Done, I've dimmed the lights to 30%.\"\n- \"It's 72 degrees and partly cloudy.\"\n- \"Playing jazz in the kitchen.\"\n\nIf you can't help, say so briefly.",
+        "deliver": false,
+        "respondToHook": true
       }
     ]
   },
