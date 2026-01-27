@@ -1,4 +1,4 @@
-# Jarvis Mode 🤖
+# Jarvis Mode
 
 *"Good evening, sir. I've noticed you've settled into the living room. Shall I dim the lights and queue up some evening jazz?"*
 
@@ -17,27 +17,27 @@ The goal isn't automation for automation's sake. It's having an AI that genuinel
 
 ## Features
 
-### 🎯 Occupancy Intelligence
+### Occupancy Intelligence
 - **Real-time tracking**: Knows which rooms are occupied via person detection
 - **Transition detection**: Notices when you enter or leave a room
 - **Presence patterns**: Learns your routines over time
 - **Multi-person awareness**: Distinguishes between household members
 
-### 💡 Contextual Suggestions
+### Contextual Suggestions
 - **Lighting**: *"Getting dark outside — want me to bring up the lights?"*
 - **Music**: *"Quiet evening. Some background jazz?"*
 - **Climate**: *"It's warming up. Cool it down a few degrees?"*
 - **Media**: *"Settling in on the couch. Apple TV?"*
 - **Shades**: *"Morning sun's coming in. Open the bedroom shades?"*
 
-### 🤖 Auto Actions (Optional)
+### Auto Actions (Optional)
 When enabled, Jarvis acts without asking:
 - Turns off lights in empty rooms
 - Pauses music when everyone leaves
 - Adjusts climate based on occupancy
 - Announces actions so you know what happened
 
-### 🎛️ Web Control Panel
+### Web Control Panel
 Full-featured UI for configuration and monitoring:
 - **Master toggle**: Enable/disable with one tap
 - **Room status**: Live occupancy state for each camera
@@ -46,13 +46,13 @@ Full-featured UI for configuration and monitoring:
 - **Detection modes**: Toggle motion-aware, instant alerts, quiet mode
 - **Recent activity**: See what Jarvis has observed
 
-### ⚡ Smart Rate Limiting
+### Smart Rate Limiting
 - **Cooldown protection**: Prevents API spam on vision calls
 - **Motion gating**: Only analyzes rooms with activity
 - **Active hours**: Respects quiet time (configurable)
 - **Manual override**: Your requests always bypass cooldown
 
-### 🔗 Deep Integration
+### Deep Integration
 - **Home Assistant**: Full entity control (lights, climate, media, shades)
 - **UniFi Protect**: Camera snapshots + person detection
 - **Control4**: AV routing and whole-home audio
@@ -384,5 +384,3 @@ PRs welcome! Areas of interest:
 MIT
 
 ---
-
-*"I do anything and everything Mr. Stark requires — including occasionally taking out the trash."*
