@@ -1,0 +1,36 @@
+{
+  "enabled": false,
+  "checkIntervalMinutes": 5,
+  "cooldownMinutes": 30,
+  "motionCooldownMinutes": 10,
+  "motionAware": true,
+  "instantAlerts": true,
+  "quietMode": true,
+  "autoActions": {
+    "enabled": false,
+    "announceActions": true
+  },
+  "activeHours": {
+    "start": 7,
+    "end": 23
+  },
+  "cameras": {
+    "kitchen": {
+      "entity_id": "camera.kitchen_low_resolution_channel",
+      "enabled": true,
+      "motionSensor": "binary_sensor.kitchen_person_detected"
+    },
+    "living_room": {
+      "entity_id": "camera.living_room_low_resolution_channel",
+      "enabled": true,
+      "motionSensor": "binary_sensor.living_room_person_detected"
+    }
+  },
+  "suggestions": {
+    "music": true,
+    "lighting": true,
+    "tv": true,
+    "climate": true
+  },
+  "notifyChannel": "telegram"
+}

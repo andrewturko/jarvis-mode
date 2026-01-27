@@ -1,0 +1,22 @@
+# Runtime state
+state.json
+triggers.json
+patterns.json
+
+# User-specific (generated/configured)
+home-inventory.json
+config.json
+capabilities.json
+
+# Snapshots (camera images)
+snapshots/
+*.jpg
+*.png
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
+
+# Logs
+*.log

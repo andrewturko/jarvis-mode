@@ -1,0 +1,54 @@
+# Jarvis Mode - Motion Trigger Automation
+# Add this to your Home Assistant automations.yaml or create via UI
+#
+# This calls the Clawdbot gateway webhook directly when motion is detected.
+# The Jarvis server (8088) handles cooldown checks before forwarding.
+
+# =============================================================================
+# STEP 1: Add to configuration.yaml
+# =============================================================================
+
+rest_command:
+  jarvis_motion:
+    url: "http://192.168.1.X:8088/webhook/motion/{{ room }}"
+    method: POST
+    content_type: "application/json"
+    payload: '{"room": "{{ room }}"}'
+
+# =============================================================================
+# STEP 2: Create automation (via UI or automations.yaml)
+# =============================================================================
+
+alias: "Jarvis Motion Trigger"
+description: "Notify Jarvis when motion detected on cameras"
+mode: parallel
+max: 10
+
+trigger:
+  - platform: state
+    entity_id:
+      - binary_sensor.kitchen_motion
+      - binary_sensor.living_room_motion
+      - binary_sensor.dining_motion
+    from: "off"
+    to: "on"
+
+action:
+  - service: rest_command.jarvis_motion
+    data:
+      room: >-
+        {{ trigger.entity_id | replace('binary_sensor.', '') | replace('_motion', '') }}
+
+# =============================================================================
+# ALTERNATIVE: Call Clawdbot gateway directly (bypasses Jarvis cooldowns)
+# =============================================================================
+# If you want HA to call Clawdbot directly (skipping the Jarvis server):
+#
+# rest_command:
+#   jarvis_direct:
+#     url: "http://192.168.1.X:18789/hooks/jarvis/motion"
+#     method: POST
+#     headers:
+#       Authorization: "Bearer jarvis-motion-2026"
+#     content_type: "application/json"
+#     payload: '{"room": "{{ room }}"}'

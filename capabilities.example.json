@@ -1,0 +1,31 @@
+{
+  "_description": "Discovered capabilities for this home. Auto-populated from HA/C4 inventory.",
+  "_last_updated": null,
+  "lighting": {
+    "rooms": {
+      "kitchen": ["light.kitchen_main"],
+      "living_room": ["light.living_room_main", "light.floor_lamp"],
+      "dining": ["light.dining_chandelier"]
+    },
+    "scenes": []
+  },
+  "media": {
+    "speakers": {
+      "kitchen": "media_player.kitchen",
+      "living_room": "media_player.living_room"
+    },
+    "tvs": {
+      "living_room": "media_player.living_room_tv"
+    }
+  },
+  "climate": {
+    "thermostats": ["climate.main"],
+    "zones": {}
+  },
+  "cameras": {
+    "kitchen": "camera.kitchen",
+    "living_room": "camera.living_room"
+  },
+  "vacuum": null,
+  "shades": {}
+}

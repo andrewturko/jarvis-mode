@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Mode</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.3);
+            --text-primary: #f0f0f5;
+            --text-secondary: #8888a0;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: #2a2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .logo h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .logo p {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Master Toggle */
+        .master-toggle {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--border);
+        }
+
+        .toggle-info h2 {
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .toggle-info p {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 64px;
+            height: 34px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--bg-secondary);
+            border-radius: 34px;
+            transition: 0.3s;
+            border: 2px solid var(--border);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 24px;
+            width: 24px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent);
+            border-color: var(--accent);
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(30px);
+            background: white;
+        }
+
+        /* Status Cards */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .status-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .status-card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .status-card .value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .status-card .value.active {
+            color: var(--success);
+        }
+
+        .status-card .value.inactive {
+            color: var(--text-secondary);
+        }
+
+        /* Cameras Section */
+        .section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .section-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .camera-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .camera-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .camera-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .camera-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .camera-name {
+            font-weight: 500;
+        }
+
+        .camera-status {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .motion-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .motion-dot.active {
+            background: var(--success);
+            animation: pulse 1s infinite;
+        }
+
+        .motion-dot.inactive {
+            background: var(--text-secondary);
+            opacity: 0.5;
+        }
+
+        .motion-dot.unknown {
+            background: var(--warning);
+            opacity: 0.5;
+        }
+
+        /* Toggle Cards */
+        .toggle-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+
+        .toggle-card:hover {
+            border-color: var(--accent);
+        }
+
+        .toggle-card-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toggle-card-icon {
+            font-size: 20px;
+        }
+
+        .toggle-card-text h4 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .toggle-card-text p {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .mini-toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+
+        .mini-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .mini-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--bg-primary);
+            border-radius: 24px;
+            transition: 0.3s;
+            border: 1px solid var(--border);
+        }
+
+        .mini-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .mini-toggle input:checked + .mini-slider {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .mini-toggle input:checked + .mini-slider:before {
+            transform: translateX(20px);
+            background: white;
+        }
+
+        .setting-row.hidden {
+            display: none;
+        }
+
+        .badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            margin-left: 8px;
+        }
+
+        .badge.ready {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+
+        .badge.cooldown {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+
+        .badge.no-motion {
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card);
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* Recent Activity */
+        .activity-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .activity-time {
+            color: var(--text-secondary);
+            font-size: 12px;
+            min-width: 80px;
+        }
+
+        .activity-room {
+            font-weight: 500;
+            min-width: 100px;
+        }
+
+        .activity-desc {
+            color: var(--text-secondary);
+            flex: 1;
+        }
+
+        /* Settings */
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+
+        .setting-label {
+            font-weight: 500;
+        }
+
+        .setting-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .setting-input {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+            width: 100px;
+            text-align: center;
+        }
+
+        .setting-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding-top: 24px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-indicator.active {
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.inactive {
+            background: var(--text-secondary);
+        }
+
+        /* Loading */
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Skeleton Loading */
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card) 50%, var(--bg-secondary) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 6px;
+        }
+
+        .skeleton-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .skeleton-time {
+            width: 60px;
+            height: 14px;
+        }
+
+        .skeleton-room {
+            width: 80px;
+            height: 16px;
+        }
+
+        .skeleton-desc {
+            flex: 1;
+            height: 14px;
+        }
+
+        .checking-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: rgba(59, 130, 246, 0.2);
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--accent);
+            margin-left: 12px;
+        }
+
+        .checking-indicator .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 24px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">🤖</div>
+                <div>
+                    <h1>Jarvis Mode</h1>
+                    <p>Proactive home intelligence</p>
+                </div>
+            </div>
+            <button class="btn btn-secondary" onclick="refreshStatus()">↻ Refresh</button>
+        </header>
+
+        <!-- Master Toggle -->
+        <div class="master-toggle">
+            <div class="toggle-info">
+                <h2><span class="status-indicator" id="statusIndicator"></span>Jarvis Mode</h2>
+                <p id="statusText">Loading...</p>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="masterToggle" onchange="toggleJarvis()">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <!-- Status Grid -->
+        <div class="status-grid">
+            <div class="status-card">
+                <h3>Last Poll</h3>
+                <div class="value" id="lastPoll">--</div>
+            </div>
+            <div class="status-card">
+                <h3>Active Hours</h3>
+                <div class="value" id="activeHours">--</div>
+            </div>
+            <div class="status-card">
+                <h3>Check Interval</h3>
+                <div class="value" id="checkInterval">--</div>
+            </div>
+            <div class="status-card">
+                <h3>Cooldown</h3>
+                <div class="value" id="cooldown">--</div>
+            </div>
+        </div>
+
+        <!-- Cameras -->
+        <div class="section">
+            <div class="section-header">
+                <h2>📷 Monitored Cameras</h2>
+                <button class="btn btn-primary btn-small" onclick="checkNow()">Check Now</button>
+            </div>
+            <div class="camera-list" id="cameraList">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="section">
+            <div class="section-header">
+                <h2>📋 Recent Observations</h2>
+            </div>
+            <div class="activity-list" id="activityList">
+                <div class="activity-item">
+                    <span class="activity-desc">No recent observations</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detection Mode -->
+        <div class="section">
+            <div class="section-header">
+                <h2>📡 Detection Mode</h2>
+            </div>
+            <div class="toggle-cards">
+                <div class="toggle-card">
+                    <div class="toggle-card-info">
+                        <span class="toggle-card-icon">🎯</span>
+                        <div class="toggle-card-text">
+                            <h4>Motion-Aware</h4>
+                            <p>Only check rooms with activity</p>
+                        </div>
+                    </div>
+                    <label class="mini-toggle">
+                        <input type="checkbox" id="motionAwareToggle" onchange="updateSetting('motionAware', this.checked)">
+                        <span class="mini-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-card">
+                    <div class="toggle-card-info">
+                        <span class="toggle-card-icon">⚡</span>
+                        <div class="toggle-card-text">
+                            <h4>Instant Alerts</h4>
+                            <p>Trigger on motion detection</p>
+                        </div>
+                    </div>
+                    <label class="mini-toggle">
+                        <input type="checkbox" id="instantAlertsToggle" onchange="toggleInstantAlerts(this.checked)">
+                        <span class="mini-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-card">
+                    <div class="toggle-card-info">
+                        <span class="toggle-card-icon">🤫</span>
+                        <div class="toggle-card-text">
+                            <h4>Smart Quiet</h4>
+                            <p>Only message when there's a real suggestion</p>
+                        </div>
+                    </div>
+                    <label class="mini-toggle">
+                        <input type="checkbox" id="quietModeToggle" onchange="updateSetting('quietMode', this.checked)">
+                        <span class="mini-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-card">
+                    <div class="toggle-card-info">
+                        <span class="toggle-card-icon">🤖</span>
+                        <div class="toggle-card-text">
+                            <h4>Auto Actions</h4>
+                            <p>Automatically act (e.g. lights off in empty rooms)</p>
+                        </div>
+                    </div>
+                    <label class="mini-toggle">
+                        <input type="checkbox" id="autoActionsToggle" onchange="updateAutoActions(this.checked)">
+                        <span class="mini-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="section">
+            <div class="section-header">
+                <h2>⏱️ Timing</h2>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Check Interval</div>
+                    <div class="setting-desc">Minutes between scheduled checks (state polling + analysis)</div>
+                </div>
+                <input type="number" class="setting-input" id="intervalInput" value="5" min="1" max="60" onchange="updateCheckInterval(parseInt(this.value))">
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Analysis Cooldown</div>
+                    <div class="setting-desc">Minimum time between full checks of same room</div>
+                </div>
+                <input type="number" class="setting-input" id="cooldownInput" value="30" min="10" max="120" onchange="updateSetting('cooldownMinutes', parseInt(this.value))">
+            </div>
+            <div class="setting-row" id="motionCooldownRow">
+                <div>
+                    <div class="setting-label">Motion Cooldown</div>
+                    <div class="setting-desc">Cooldown for motion-triggered checks</div>
+                </div>
+                <input type="number" class="setting-input" id="motionCooldownInput" value="10" min="5" max="60" onchange="updateSetting('motionCooldownMinutes', parseInt(this.value))">
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Active Hours</div>
+                    <div class="setting-desc">Only observe during these hours</div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="number" class="setting-input" id="startHour" value="0" min="0" max="24" style="width: 60px;">
+                    <span>to</span>
+                    <input type="number" class="setting-input" id="endHour" value="24" min="0" max="24" style="width: 60px;">
+                    <button class="btn btn-secondary btn-small" onclick="updateActiveHours()">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Utilities -->
+        <div class="section">
+            <div class="section-header">
+                <h2>🔧 Utilities</h2>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Home Inventory</div>
+                    <div class="setting-desc">Refresh available devices from Home Assistant</div>
+                </div>
+                <button class="btn btn-secondary btn-small" onclick="refreshInventory()">Refresh</button>
+            </div>
+        </div>
+
+        <footer>
+            Jarvis Mode by Clawdbot • Built with 🤖
+        </footer>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API_BASE = '/api';  // Will be proxied by Clawdbot
+        
+        // State
+        let status = {
+            enabled: false,
+            activeHours: false,
+            checkInterval: 20,
+            cooldown: 30,
+            motionCooldown: 10,
+            motionAware: true,
+            instantAlerts: false,
+            lastCheck: null,
+            cameras: [],
+            roomStates: {}
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshStatus();
+        });
+
+        async function refreshStatus() {
+            try {
+                const resp = await fetch('/api/status');
+                if (resp.ok) {
+                    status = await resp.json();
+                }
+                updateUI();
+            } catch (e) {
+                console.error('Error loading status:', e);
+                // Fallback - show current state
+                updateUI();
+            }
+        }
+
+        function updateUI() {
+            // Update toggle
+            const toggle = document.getElementById('masterToggle');
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            toggle.checked = status.enabled;
+            indicator.className = 'status-indicator ' + (status.enabled ? 'active' : 'inactive');
+            statusText.textContent = status.enabled ? 
+                'Actively monitoring your home' : 
+                'Disabled - enable to start monitoring';
+
+            // Update stats
+            document.getElementById('lastPoll').textContent = status.lastPoll ? 
+                formatTime(status.lastPoll) : 'Never';
+            document.getElementById('activeHours').textContent = status.activeHours ? 
+                'Yes ✓' : 'No';
+            document.getElementById('checkInterval').textContent = status.checkInterval + ' min';
+            document.getElementById('cooldown').textContent = status.cooldown + ' min';
+
+            // Update detection mode toggles
+            document.getElementById('motionAwareToggle').checked = status.motionAware;
+            document.getElementById('instantAlertsToggle').checked = status.instantAlerts;
+            document.getElementById('quietModeToggle').checked = status.quietMode !== false;
+            document.getElementById('autoActionsToggle').checked = status.autoActions?.enabled || false;
+            
+            // Update settings inputs
+            document.getElementById('intervalInput').value = status.checkInterval || 5;
+            document.getElementById('cooldownInput').value = status.cooldown;
+            document.getElementById('motionCooldownInput').value = status.motionCooldown || 10;
+            
+            // Update active hours
+            if (status.activeHoursConfig) {
+                document.getElementById('startHour').value = status.activeHoursConfig.start || 7;
+                document.getElementById('endHour').value = status.activeHoursConfig.end || 23;
+            }
+            
+            // Show/hide motion cooldown based on instant alerts
+            const motionCooldownRow = document.getElementById('motionCooldownRow');
+            motionCooldownRow.classList.toggle('hidden', !status.instantAlerts);
+
+            // Update cameras with motion status
+            const cameraList = document.getElementById('cameraList');
+            if (status.cameras && status.cameras.length > 0) {
+                cameraList.innerHTML = status.cameras.map(camera => {
+                    const roomState = status.roomStates[camera] || {};
+                    const isOccupied = roomState.lastOccupancy === true;
+                    const motionClass = isOccupied ? 'active' : 'inactive';
+                    const occupancyText = isOccupied ? 'Occupied' : 'Empty';
+                    
+                    // Status badge
+                    let badge = '';
+                    if (isOccupied) {
+                        badge = '<span class="badge ready">Occupied</span>';
+                    } else {
+                        badge = '<span class="badge no-motion">Empty</span>';
+                    }
+                    
+                    // Time since occupancy changed
+                    let changedText = '';
+                    if (roomState.occupancyChangedAt) {
+                        changedText = ` • Changed ${formatTime(roomState.occupancyChangedAt)}`;
+                    }
+                    
+                    return `
+                        <div class="camera-item">
+                            <div class="camera-info">
+                                <div class="camera-icon">
+                                    <span class="motion-dot ${motionClass}"></span>📹
+                                </div>
+                                <div>
+                                    <div class="camera-name">${formatRoomName(camera)}${badge}</div>
+                                    <div class="camera-status">Last check: ${roomState.lastCheck ? formatTime(roomState.lastCheck) : 'Never'}${changedText}</div>
+                                </div>
+                            </div>
+                            <div class="camera-actions">
+                                <button class="btn btn-secondary btn-small" onclick="checkRoom('${camera}')">Check</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Update recent observations
+            const activityList = document.getElementById('activityList');
+            if (status.recentObservations && status.recentObservations.length > 0) {
+                activityList.innerHTML = status.recentObservations.map(obs => `
+                    <div class="activity-item">
+                        <span class="activity-time">${formatTime(obs.timestamp)}</span>
+                        <span class="activity-room">${formatRoomName(obs.room)}</span>
+                        <span class="activity-desc">${obs.summary || obs.activity || 'Checked'}</span>
+                    </div>
+                `).join('');
+            } else {
+                activityList.innerHTML = '<div class="activity-item"><span class="activity-desc">No recent observations</span></div>';
+            }
+        }
+
+        async function toggleJarvis() {
+            const enabled = document.getElementById('masterToggle').checked;
+            
+            // Send action to agent via postMessage
+            window.parent.postMessage({
+                type: 'jarvis-action',
+                action: 'toggle',
+                enabled: enabled
+            }, '*');
+            
+            status.enabled = enabled;
+            updateUI();
+            showToast(enabled ? 'Jarvis Mode enabled' : 'Jarvis Mode disabled');
+        }
+
+        async function checkNow() {
+            showToast('Checking all rooms...');
+            showLoadingState('all');
+            try {
+                const resp = await fetch('/api/check/all', {method: 'POST'});
+                const result = await resp.json();
+                // Start polling for updates
+                startPollingForUpdates();
+            } catch (e) {
+                hideLoadingState();
+                showToast('Error requesting check');
+            }
+        }
+
+        async function checkRoom(room) {
+            showToast(`Checking ${formatRoomName(room)}...`);
+            showLoadingState(room);
+            try {
+                const resp = await fetch(`/api/check/${room}`, {method: 'POST'});
+                const result = await resp.json();
+                // Start polling for updates
+                startPollingForUpdates();
+            } catch (e) {
+                hideLoadingState();
+                showToast('Error requesting check');
+            }
+        }
+
+        let pollingInterval = null;
+        let pollCount = 0;
+        const MAX_POLLS = 60; // 60 seconds max (agent analysis takes time)
+
+        function startPollingForUpdates() {
+            pollCount = 0;
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            pollingInterval = setInterval(async () => {
+                pollCount++;
+                try {
+                    const resp = await fetch('/api/status');
+                    if (resp.ok) {
+                        const newStatus = await resp.json();
+                        // Check if we have new observations
+                        const oldCount = status.recentObservations?.length || 0;
+                        const newCount = newStatus.recentObservations?.length || 0;
+                        const oldFirst = status.recentObservations?.[0]?.timestamp;
+                        const newFirst = newStatus.recentObservations?.[0]?.timestamp;
+                        
+                        if (newFirst !== oldFirst || newCount > oldCount) {
+                            // New data arrived
+                            status = newStatus;
+                            hideLoadingState();
+                            updateUI();
+                            stopPolling();
+                            showToast('Check complete');
+                            return;
+                        }
+                    }
+                } catch (e) {}
+                
+                if (pollCount >= MAX_POLLS) {
+                    hideLoadingState();
+                    stopPolling();
+                    showToast('Check timed out');
+                }
+            }, 1000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        function showLoadingState(room) {
+            // Add checking indicator to observations header
+            const sections = document.querySelectorAll('.section');
+            const observationsSection = Array.from(sections).find(s => s.textContent.includes('Recent Observations'));
+            if (observationsSection && !document.getElementById('checkingIndicator')) {
+                const header = observationsSection.querySelector('.section-header h2');
+                const indicator = document.createElement('span');
+                indicator.id = 'checkingIndicator';
+                indicator.className = 'checking-indicator';
+                indicator.innerHTML = '<span class="dot"></span> Analyzing...';
+                header.appendChild(indicator);
+            }
+            
+            // Show skeleton in activity list
+            const activityList = document.getElementById('activityList');
+            const skeletonHtml = `
+                <div class="skeleton-item" id="skeletonLoader">
+                    <span class="skeleton skeleton-time"></span>
+                    <span class="skeleton skeleton-room"></span>
+                    <span class="skeleton skeleton-desc"></span>
+                </div>
+            `;
+            activityList.insertAdjacentHTML('afterbegin', skeletonHtml);
+        }
+
+        function hideLoadingState() {
+            const indicator = document.getElementById('checkingIndicator');
+            if (indicator) indicator.remove();
+            
+            const skeleton = document.getElementById('skeletonLoader');
+            if (skeleton) skeleton.remove();
+        }
+
+        async function updateSetting(key, value) {
+            try {
+                await fetch('/api/setting', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key, value})
+                });
+                status[key] = value;
+                showToast('Setting updated');
+            } catch (e) {
+                showToast('Error updating setting');
+            }
+        }
+
+        async function updateCheckInterval(value) {
+            try {
+                const resp = await fetch('/api/setting', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: 'checkIntervalMinutes', value})
+                });
+                const result = await resp.json();
+                status.checkInterval = value;
+                if (result.cronSync?.synced) {
+                    showToast(`Check interval: ${value}m (cron synced)`);
+                } else {
+                    showToast(`Check interval: ${value}m`);
+                }
+            } catch (e) {
+                showToast('Error updating interval');
+            }
+        }
+
+        function toggleInstantAlerts(enabled) {
+            updateSetting('instantAlerts', enabled);
+            // Show/hide motion cooldown row
+            const motionCooldownRow = document.getElementById('motionCooldownRow');
+            motionCooldownRow.classList.toggle('hidden', !enabled);
+        }
+
+        function formatTime(isoString) {
+            if (!isoString) return 'Never';
+            const date = new Date(isoString);
+            const now = new Date();
+            const diff = now - date;
+            
+            if (diff < 60000) return 'Just now';
+            if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+            return date.toLocaleDateString();
+        }
+
+        function formatRoomName(name) {
+            return name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        async function refreshInventory() {
+            showToast('Refreshing home inventory...');
+            try {
+                const resp = await fetch('/api/refresh-inventory', {method: 'POST'});
+                const result = await resp.json();
+                if (result.ok) {
+                    showToast('Inventory refreshed');
+                } else {
+                    showToast('Error: ' + (result.error || 'Unknown'));
+                }
+            } catch (e) {
+                showToast('Error refreshing inventory');
+            }
+        }
+
+        async function updateAutoActions(enabled) {
+            try {
+                // Need to update the nested autoActions.enabled
+                const resp = await fetch('/api/setting', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: 'autoActions', value: {...(status.autoActions || {}), enabled}})
+                });
+                showToast(enabled ? 'Auto actions enabled' : 'Auto actions disabled');
+            } catch (e) {
+                showToast('Error updating setting');
+            }
+        }
+
+        async function updateActiveHours() {
+            const start = parseInt(document.getElementById('startHour').value);
+            const end = parseInt(document.getElementById('endHour').value);
+            try {
+                await fetch('/api/setting', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: 'activeHours', value: {start, end}})
+                });
+                showToast('Active hours updated');
+            } catch (e) {
+                showToast('Error updating active hours');
+            }
+        }
+
+        // Listen for status updates from agent
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'jarvis-status') {
+                status = event.data.status;
+                updateUI();
+            }
+        });
+
+        // Expose for agent to call
+        window.updateJarvisStatus = function(newStatus) {
+            status = newStatus;
+            updateUI();
+        };
+    </script>
+</body>
+</html>
