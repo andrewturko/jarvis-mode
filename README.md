@@ -145,7 +145,7 @@ Or I can just keep an eye on things."
 1. **Install the skill**
    ```bash
    cd ~/clawd/skills
-   git clone https://github.com/youruser/jarvis-mode.git
+   git clone https://github.com/andrewturko/jarvis-mode.git
    cd jarvis-mode
    ```
 
@@ -155,25 +155,32 @@ Or I can just keep an eye on things."
    # Edit config.json with your camera entities and sensors
    ```
 
-3. **Discover your devices**
+3. **Register with Clawdbot** (auto-configures hooks + cron)
+   ```bash
+   python3 scripts/jarvis.py setup
+   ```
+   This automatically:
+   - Adds webhook handlers to Clawdbot config
+   - Creates the polling cron job
+   - Uses `notifyChannel` from your config.json
+
+4. **Restart Clawdbot gateway** to apply hooks
+   ```bash
+   clawdbot gateway restart
+   ```
+
+5. **Discover your devices**
    ```bash
    python3 scripts/refresh-inventory.py
    ```
 
-4. **Start the UI server**
+6. **Start the UI server**
    ```bash
    ./serve-ui.sh
    # Access at http://localhost:8088
    ```
 
-5. **Add the polling cron** (via Clawdbot)
-   ```
-   Name: jarvis-poll
-   Schedule: */5 * * * *
-   Task: Poll occupancy and handle transitions
-   ```
-
-6. **Optional: Home Assistant automation**
+7. **Optional: Home Assistant automation**
    
    Import `ha_automation.yaml` for instant alerts on person detection.
 
