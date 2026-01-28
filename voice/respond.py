@@ -8,7 +8,8 @@ import urllib.error
 import subprocess
 import tempfile
 import os
-from typing import Optional, Dict
+import time
+from typing import Optional, Dict, Tuple
 from pathlib import Path
 
 VOICE_CONFIG_PATH = Path(__file__).parent.parent / "voice-config.json"
@@ -235,45 +236,61 @@ class ResponseHandler:
         config = load_config()
         clawdbot_config = config.get("clawdbot", {})
         tts_config = config.get("tts", {})
-        
+
         self.clawdbot = ClawdbotClient(
             gateway_url=clawdbot_config.get("gateway_url", "http://127.0.0.1:18789"),
             hook_path=clawdbot_config.get("hook_path", "/hooks/jarvis/voice"),
             hook_token=clawdbot_config.get("hook_token", ""),
             timeout_seconds=clawdbot_config.get("timeout_seconds", 30)
         )
-        
+
         self.tts_enabled = tts_config.get("enabled", True)
         self.tts = SonosTTS(
             default_volume=tts_config.get("default_volume", 30),
             announcement_volume=tts_config.get("announcement_volume", 40)
         ) if self.tts_enabled else None
+
+        # Deduplication: track recent requests (text, timestamp)
+        self.last_request: Optional[Tuple[str, float]] = None
+        self.dedup_window_seconds = 3.0  # Ignore duplicates within 3 seconds
         
     def handle(self, text: str, room: str) -> Optional[str]:
         """
         Send transcription to Clawdbot and speak response.
-        
+
         Args:
             text: Transcribed speech
             room: Room where speech was detected
-            
+
         Returns:
             Response text, or None on error
         """
+        # Deduplication: check if this is a duplicate of recent request
+        now = time.time()
+        if self.last_request:
+            last_text, last_time = self.last_request
+            if (text.lower().strip() == last_text.lower().strip() and
+                now - last_time < self.dedup_window_seconds):
+                print(f"[{room}] Duplicate request ignored: \"{text}\"")
+                return None
+
+        # Update last request tracker
+        self.last_request = (text, now)
+
         print(f"[{room}] Sending to Clawdbot: \"{text}\"")
-        
+
         # Send to Clawdbot
         response = self.clawdbot.send(text, room)
-        
+
         if response:
             print(f"[{room}] Clawdbot response: \"{response}\"")
-            
+
             # Speak response
             if self.tts and self.tts_enabled:
                 self.tts.speak(response, room)
         else:
             print(f"[{room}] No response from Clawdbot")
-            
+
         return response
 
 

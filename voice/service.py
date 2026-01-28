@@ -204,9 +204,11 @@ def main():
             print(f"Room '{room}' not in config. Available: {list(config['cameras'].keys())}")
             return
             
-        nvr_ip = config["unifi_protect"]["nvr_ip"]
-        rtsp_path = config["cameras"][room]["rtsp_path"]
-        rtsp_url = f"rtsp://{nvr_ip}:7447/{rtsp_path}"
+        rtsp_url = config["cameras"][room].get("rtsp_url")
+        if not rtsp_url:
+            nvr_ip = config["unifi_protect"]["nvr_ip"]
+            rtsp_path = config["cameras"][room]["rtsp_path"]
+            rtsp_url = f"rtsp://{nvr_ip}:7447/{rtsp_path}"
         
         def print_level(audio: np.ndarray, room: str):
             level = np.abs(audio).mean()

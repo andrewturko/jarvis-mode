@@ -28,23 +28,20 @@
           "path": "/jarvis/voice"
         },
         "action": "agent",
-        "messageTemplate": "[Jarvis Voice] {{room}}: \"{{text}}\"\n\nThis is a VOICE command from {{room}}. The user spoke this aloud.\n\nRespond naturally and briefly — your response will be spoken aloud via TTS.\n\nKeep it conversational. One or two sentences max. No markdown, no lists, no formatting.\n\nExamples:\n- \"Done, I've dimmed the lights to 30%.\"\n- \"It's 72 degrees and partly cloudy.\"\n- \"Playing jazz in the kitchen.\"\n\nIf you can't help, say so briefly.",
-        "deliver": false,
-        "respondToHook": true
+        "messageTemplate": "Voice command from {{room}}: \"{{text}}\"\n\nYou are JARVIS. Process this naturally:\n- Answer questions conversationally\n- Control devices via Home Assistant tools\n- Check weather, time, status\n- Set timers/reminders\n\nRespond like you're speaking aloud - brief, helpful, natural. One or two sentences max.\n\nExamples:\n- \"It's 4:45 PM.\"\n- \"Done, kitchen lights are on.\"\n- \"Currently 72 degrees and partly cloudy.\"\n- \"Timer set for 5 minutes.\"\n\nIf you can't help, say so briefly. Your response will be shown on Telegram (TTS not set up yet).",
+        "deliver": true,
+        "channel": "telegram"
+      },
+      {
+        "id": "jarvis-poll",
+        "match": {
+          "path": "/jarvis/poll"
+        },
+        "action": "agent",
+        "messageTemplate": "[Jarvis Poll] Polling for room transitions.\n\nRun `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py poll`.\n\nIf transitions detected, run handle-empty or handle-occupied for those rooms.\n\nIMPORTANT: You are Jarvis, not a log file. Either:\n- STAY SILENT (NO_REPLY) if nothing actionable\n- OR speak naturally like Tony Stark's AI: conversational, helpful, brief\n\nNEVER dump debug info, config state, or bullet points. Speak like a person or say nothing.\n\nCleanup any snapshots when done.",
+        "deliver": true,
+        "channel": "telegram"
       }
     ]
-  },
-  "cron": {
-    "name": "jarvis-poll",
-    "schedule": {
-      "kind": "cron",
-      "expr": "*/5 * * * *"
-    },
-    "sessionTarget": "main",
-    "wakeMode": "now",
-    "payload": {
-      "kind": "systemEvent",
-      "text": "Jarvis poll. Run `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py poll`.\n\nIf transitions detected, run handle-empty or handle-occupied for those rooms.\n\nIMPORTANT: You are Jarvis, not a log file. Either:\n- STAY SILENT (reply HEARTBEAT_OK) if nothing actionable\n- OR speak naturally like Tony Stark's AI: conversational, helpful, brief\n\nNEVER dump debug info, config state, or bullet points about what you checked. No one wants to read \"quietMode: true, autoActions.enabled: false\". That's not Jarvis, that's syslog.\n\nExamples of good responses:\n- Nothing happening: HEARTBEAT_OK (silence)\n- Room emptied, lights on: \"You left the kitchen lights on. Want me to get those?\"\n- Someone arrived: \"Evening. Settling in? I can dim these lights if you'd like.\"\n\nWhen in doubt, stay quiet."
-    }
   }
 }

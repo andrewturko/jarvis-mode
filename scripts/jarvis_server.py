@@ -50,9 +50,18 @@ class JarvisHandler(SimpleHTTPRequestHandler):
         if path == '/api/status':
             self.send_json(get_status())
             return
-        
+
         if path == '/api/health':
             self.send_json({"status": "ok", "port": PORT})
+            return
+
+        # Voice service status
+        if path == '/api/voice/status':
+            self.send_json(get_voice_status())
+            return
+
+        if path == '/api/voice/cameras':
+            self.send_json(get_voice_cameras())
             return
         
         # Serve static files (UI)
@@ -130,8 +139,197 @@ class JarvisHandler(SimpleHTTPRequestHandler):
             result = refresh_home_inventory()
             self.send_json(result)
             return
-        
+
+        # Voice service control
+        if path == '/api/voice/start':
+            result = control_voice_service('start')
+            self.send_json(result)
+            return
+
+        if path == '/api/voice/stop':
+            result = control_voice_service('stop')
+            self.send_json(result)
+            return
+
+        # Voice config update
+        if path == '/api/voice/config':
+            key = body.get('key')
+            value = body.get('value')
+            if not key:
+                self.send_json({"error": "Missing key"}, 400)
+                return
+            result = update_voice_config(key, value)
+            self.send_json(result)
+            return
+
         self.send_json({"error": "Unknown endpoint"}, 404)
+
+
+def get_voice_status():
+    """Check if voice service is running via launchctl."""
+    import subprocess
+
+    LAUNCHD_LABEL = "com.jarvis.voice"
+
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", LAUNCHD_LABEL],
+            capture_output=True,
+            text=True
+        )
+        running = result.returncode == 0
+
+        # Get log file info
+        log_path = "/tmp/jarvis-voice.log"
+        error_log_path = "/tmp/jarvis-voice-error.log"
+
+        logs = ""
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, 'r') as f:
+                    logs = f.read()
+            except:
+                pass
+
+        # Get wake word config
+        wake_word_model = "hey_jarvis_v0.1"
+        wake_threshold = 0.5
+        try:
+            voice_config_path = SKILL_DIR / "voice-config.json"
+            if voice_config_path.exists():
+                with open(voice_config_path) as f:
+                    config = json.load(f)
+                wake_word_model = config.get("wake_word", {}).get("model", "hey_jarvis_v0.1")
+                wake_threshold = config.get("wake_word", {}).get("threshold", 0.5)
+        except:
+            pass
+
+        return {
+            "running": running,
+            "label": LAUNCHD_LABEL,
+            "logs": logs,
+            "logPath": log_path,
+            "errorLogPath": error_log_path,
+            "wakeWord": wake_word_model,
+            "wakeThreshold": wake_threshold
+        }
+    except Exception as e:
+        return {
+            "running": False,
+            "error": str(e)
+        }
+
+
+def get_voice_cameras():
+    """Get list of cameras enabled for voice commands."""
+    try:
+        voice_config_path = SKILL_DIR / "voice-config.json"
+        if not voice_config_path.exists():
+            return {"cameras": []}
+
+        with open(voice_config_path) as f:
+            config = json.load(f)
+
+        cameras = []
+        for room, cam_config in config.get('cameras', {}).items():
+            if cam_config.get('enabled', False):
+                cameras.append({
+                    "room": room,
+                    "name": cam_config.get('name', room),
+                    "speaker": cam_config.get('speaker', room.replace('_', ' ').title())
+                })
+
+        return {"cameras": cameras}
+    except Exception as e:
+        return {"cameras": [], "error": str(e)}
+
+
+def control_voice_service(action):
+    """Start or stop the voice service via launchctl."""
+    import subprocess
+
+    LAUNCHD_LABEL = "com.jarvis.voice"
+
+    try:
+        # Use HOME env var instead of getlogin() - more reliable in LaunchAgent context
+        home_dir = os.environ.get('HOME', os.path.expanduser('~'))
+        plist_path = f"{home_dir}/Library/LaunchAgents/{LAUNCHD_LABEL}.plist"
+
+        if action == 'start':
+            cmd = ["launchctl", "load", "-w", plist_path]
+            success_msg = "Voice service started"
+        elif action == 'stop':
+            cmd = ["launchctl", "unload", "-w", plist_path]
+            success_msg = "Voice service stopped"
+        else:
+            return {"ok": False, "error": "Invalid action"}
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True
+        )
+
+        # Determine success based on action
+        if action == 'start':
+            # For start: success if returncode 0, or if already loaded
+            is_success = result.returncode == 0 or "already loaded" in result.stderr.lower()
+        else:  # stop
+            # For stop: success if returncode 0, or if service was not found (already stopped)
+            is_success = result.returncode == 0 or "could not find" in result.stderr.lower()
+
+        if is_success:
+            return {"ok": True, "message": success_msg}
+        else:
+            return {"ok": False, "error": result.stderr or result.stdout or f"Failed to {action} voice service"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def update_voice_config(key, value):
+    """Update voice configuration (wake word, threshold, etc.)."""
+    try:
+        voice_config_path = SKILL_DIR / "voice-config.json"
+
+        if not voice_config_path.exists():
+            return {"ok": False, "error": "Voice config file not found"}
+
+        with open(voice_config_path) as f:
+            config = json.load(f)
+
+        # Update the config based on key
+        if key == "wakeWord":
+            if "wake_word" not in config:
+                config["wake_word"] = {}
+            config["wake_word"]["model"] = value
+        elif key == "wakeThreshold":
+            if "wake_word" not in config:
+                config["wake_word"] = {}
+            config["wake_word"]["threshold"] = value
+        else:
+            return {"ok": False, "error": f"Unknown key: {key}"}
+
+        # Save updated config
+        save_json(voice_config_path, config)
+
+        # Check if service is running - if so, suggest restart
+        import subprocess
+        result = subprocess.run(
+            ["launchctl", "list", "com.jarvis.voice"],
+            capture_output=True,
+            text=True
+        )
+        needs_restart = result.returncode == 0
+
+        return {
+            "ok": True,
+            "updated": key,
+            "value": value,
+            "needsRestart": needs_restart,
+            "message": f"Updated {key}. Restart voice service for changes to take effect." if needs_restart else f"Updated {key}"
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def refresh_home_inventory():
@@ -154,7 +352,7 @@ def refresh_home_inventory():
             return {"ok": False, "error": result.stderr}
     except Exception as e:
         return {"ok": False, "error": str(e)}
-    
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -227,55 +425,23 @@ CRON_JOB_NAME = 'jarvis-poll'
 
 
 def sync_polling_cron(interval_minutes):
-    """Update the jarvis-poll cron job schedule to match config."""
-    import urllib.request
-    
+    """Update the launchd poll interval to match config."""
+    import subprocess
+
     try:
-        # First, find the cron job ID
-        req = urllib.request.Request(
-            f"{GATEWAY_URL}/api/cron/list",
-            headers={"Content-Type": "application/json"},
-            method="GET"
+        # Call the sync script to update launchd plist
+        result = subprocess.run(
+            [f"{SKILL_DIR}/scripts/sync_poll_interval.sh"],
+            capture_output=True,
+            text=True,
+            timeout=10
         )
-        
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            jobs = data.get('jobs', [])
-            
-            job_id = None
-            for job in jobs:
-                if job.get('name') == CRON_JOB_NAME:
-                    job_id = job.get('id')
-                    break
-            
-            if not job_id:
-                return {"synced": False, "reason": "cron job not found"}
-        
-        # Update the schedule
-        new_expr = f"*/{interval_minutes} * * * *"
-        patch_data = json.dumps({
-            "id": job_id,
-            "patch": {
-                "schedule": {
-                    "kind": "cron",
-                    "expr": new_expr
-                }
-            }
-        }).encode()
-        
-        req = urllib.request.Request(
-            f"{GATEWAY_URL}/api/cron/update",
-            data=patch_data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode())
-            return {"synced": True, "newExpr": new_expr, "jobId": job_id}
-            
+
+        if result.returncode == 0:
+            return {"synced": True, "interval": interval_minutes}
+        else:
+            return {"synced": False, "error": result.stderr or "Failed to sync"}
     except Exception as e:
-        print(f"Failed to sync cron: {e}", file=sys.stderr)
         return {"synced": False, "error": str(e)}
 
 

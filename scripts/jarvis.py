@@ -458,11 +458,40 @@ def turn_off_lights(entity_ids):
     return {"success": all(r["success"] for r in results), "results": results}
 
 
-def handle_empty_room(room_name, dry_run=False):
+def verify_room_empty(room_name):
+    """
+    Take a snapshot of a room for visual verification of emptiness.
+    Used to double-check motion sensor before suggesting lights-off.
+    
+    Returns:
+        dict with snapshot_path (for vision analysis) and sensor_state
+    """
+    # Get current sensor state
+    person_detected = get_motion_state(room_name)
+    
+    # Take a snapshot (respects cooldown - limits vision API calls)
+    snapshot_path = get_camera_snapshot(room_name, manual=False)
+    
+    # Get lights that would be affected
+    lights_on = get_room_lights(room_name)
+    
+    return {
+        "room": room_name,
+        "snapshot_path": snapshot_path,
+        "sensor_says_empty": person_detected == False,
+        "lights_on": lights_on,
+        "verification_prompt": f"Is this room actually empty? Check if there are any people visible. The motion sensor says {'no one is there' if person_detected == False else 'someone might be there'}."
+    }
+
+
+def handle_empty_room(room_name, dry_run=False, skip_verify=False):
     """
     Handle a room that just became empty.
     If autoActions enabled, turn off lights.
     Returns action taken or suggested.
+    
+    Args:
+        skip_verify: If True, skip verification (already verified by agent)
     """
     config = get_config()
     auto_actions = config.get("autoActions", {})
@@ -643,9 +672,8 @@ def setup_jarvis():
             
             # Build CLI args
             cron_expr = cron_def["schedule"].get("expr", "*/5 * * * *")
-            system_event = cron_def["payload"].get("text", "")
-            wake_mode = cron_def.get("wakeMode", "now")
-            
+            payload_kind = cron_def["payload"].get("kind", "systemEvent")
+
             if existing_job:
                 # Remove and re-add (simpler than edit)
                 subprocess.run(
@@ -653,16 +681,36 @@ def setup_jarvis():
                     capture_output=True,
                     timeout=10
                 )
-            
-            # Add job
-            result = subprocess.run([
+
+            # Build command based on payload type
+            cmd = [
                 "clawdbot", "cron", "add",
                 "--name", cron_def["name"],
                 "--cron", cron_expr,
-                "--wake", wake_mode,
-                "--system-event", system_event,
-                "--json"
-            ], capture_output=True, text=True, timeout=10)
+            ]
+
+            # Add agent if specified
+            if "agentId" in cron_def:
+                cmd.extend(["--agent", cron_def["agentId"]])
+
+            # Add delivery options if specified
+            if cron_def.get("deliver"):
+                cmd.append("--deliver")
+            if "channel" in cron_def:
+                cmd.extend(["--channel", cron_def["channel"]])
+
+            # Add payload
+            if payload_kind == "agentTurn":
+                cmd.extend(["--message", cron_def["payload"].get("message", "")])
+            else:  # systemEvent
+                wake_mode = cron_def.get("wakeMode", "now")
+                cmd.extend(["--wake", wake_mode])
+                cmd.extend(["--system-event", cron_def["payload"].get("text", "")])
+
+            cmd.append("--json")
+
+            # Add job
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
                 results["cron"]["registered"] = True
@@ -981,14 +1029,24 @@ def main():
         if not result.get("success"):
             sys.exit(1)
     
-    elif cmd == "handle-empty":
-        # Handle a room that became empty
+    elif cmd == "verify-empty":
+        # Take snapshot for visual verification before suggesting lights-off
         if len(sys.argv) < 3:
-            print("Usage: jarvis.py handle-empty <room> [--dry-run]", file=sys.stderr)
+            print("Usage: jarvis.py verify-empty <room>", file=sys.stderr)
+            sys.exit(1)
+        room = sys.argv[2]
+        result = verify_room_empty(room)
+        print(json.dumps(result, indent=2))
+    
+    elif cmd == "handle-empty":
+        # Handle a room that became empty (call after verify-empty confirms)
+        if len(sys.argv) < 3:
+            print("Usage: jarvis.py handle-empty <room> [--dry-run] [--verified]", file=sys.stderr)
             sys.exit(1)
         room = sys.argv[2]
         dry_run = "--dry-run" in sys.argv
-        result = handle_empty_room(room, dry_run=dry_run)
+        skip_verify = "--verified" in sys.argv
+        result = handle_empty_room(room, dry_run=dry_run, skip_verify=skip_verify)
         print(json.dumps(result, indent=2))
     
     elif cmd == "handle-occupied":

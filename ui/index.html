@@ -620,7 +620,7 @@
                     <p>Proactive home intelligence</p>
                 </div>
             </div>
-            <button class="btn btn-secondary" onclick="refreshStatus()">↻ Refresh</button>
+            <button class="btn btn-secondary" onclick="refreshStatus(); refreshVoiceStatus()">↻ Refresh</button>
         </header>
 
         <!-- Master Toggle -->
@@ -663,6 +663,50 @@
             </div>
             <div class="camera-list" id="cameraList">
                 <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Voice Assistant -->
+        <div class="section">
+            <div class="section-header">
+                <h2>🎤 Voice Assistant</h2>
+            </div>
+            <div class="toggle-cards">
+                <div class="toggle-card">
+                    <div class="toggle-card-info">
+                        <span class="toggle-card-icon">🎙️</span>
+                        <div class="toggle-card-text">
+                            <h4>Voice Service</h4>
+                            <p id="voiceStatusText">Checking status...</p>
+                        </div>
+                    </div>
+                    <label class="mini-toggle">
+                        <input type="checkbox" id="voiceServiceToggle" onchange="toggleVoiceService(this.checked)">
+                        <span class="mini-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="camera-list" id="voiceCameraList" style="margin-top: 16px;">
+                <!-- Populated by JS -->
+            </div>
+            <div class="setting-row" style="margin-top: 16px;">
+                <div>
+                    <div class="setting-label">Wake Phrase</div>
+                    <div class="setting-desc">Choose the phrase that activates voice commands</div>
+                </div>
+                <select class="setting-input" id="wakeWordInput" style="width: auto; min-width: 150px;" onchange="updateWakeWord(this.value)">
+                    <option value="hey_jarvis_v0.1">Hey Jarvis</option>
+                    <option value="alexa_v0.1">Alexa</option>
+                    <option value="hey_mycroft_v0.1">Hey Mycroft</option>
+                    <option value="ok_naomi_v0.1">OK Naomi</option>
+                </select>
+            </div>
+            <div class="setting-row">
+                <div>
+                    <div class="setting-label">Wake Word Sensitivity</div>
+                    <div class="setting-desc">Higher = more sensitive but more false positives (0.1 - 0.9)</div>
+                </div>
+                <input type="number" class="setting-input" id="wakeThresholdInput" value="0.5" min="0.1" max="0.9" step="0.1" style="width: 80px;" onchange="updateWakeThreshold(parseFloat(this.value))">
             </div>
         </div>
 
@@ -743,6 +787,7 @@
         <div class="section">
             <div class="section-header">
                 <h2>⏱️ Timing</h2>
+                <button class="btn btn-primary btn-small" onclick="saveAllSettings()">💾 Save All</button>
             </div>
             <div class="setting-row">
                 <div>
@@ -816,9 +861,17 @@
             roomStates: {}
         };
 
+        let voiceStatus = {
+            running: false,
+            cameras: [],
+            wakeWord: 'hey_jarvis_v0.1',
+            wakeThreshold: 0.5
+        };
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             refreshStatus();
+            refreshVoiceStatus();
         });
 
         async function refreshStatus() {
@@ -832,6 +885,32 @@
                 console.error('Error loading status:', e);
                 // Fallback - show current state
                 updateUI();
+            }
+        }
+
+        async function refreshVoiceStatus() {
+            try {
+                const [statusResp, camerasResp] = await Promise.all([
+                    fetch('/api/voice/status'),
+                    fetch('/api/voice/cameras')
+                ]);
+
+                if (statusResp.ok) {
+                    const statusData = await statusResp.json();
+                    voiceStatus.running = statusData.running;
+                    voiceStatus.wakeWord = statusData.wakeWord || 'hey_jarvis_v0.1';
+                    voiceStatus.wakeThreshold = statusData.wakeThreshold !== undefined ? statusData.wakeThreshold : 0.5;
+                }
+
+                if (camerasResp.ok) {
+                    const camerasData = await camerasResp.json();
+                    voiceStatus.cameras = camerasData.cameras || [];
+                }
+
+                updateVoiceUI();
+            } catch (e) {
+                console.error('Error loading voice status:', e);
+                updateVoiceUI();
             }
         }
 
@@ -868,8 +947,8 @@
             
             // Update active hours
             if (status.activeHoursConfig) {
-                document.getElementById('startHour').value = status.activeHoursConfig.start || 7;
-                document.getElementById('endHour').value = status.activeHoursConfig.end || 23;
+                document.getElementById('startHour').value = status.activeHoursConfig.start !== undefined ? status.activeHoursConfig.start : 0;
+                document.getElementById('endHour').value = status.activeHoursConfig.end !== undefined ? status.activeHoursConfig.end : 24;
             }
             
             // Show/hide motion cooldown based on instant alerts
@@ -933,16 +1012,171 @@
             }
         }
 
+        function updateVoiceUI() {
+            // Update toggle
+            const toggle = document.getElementById('voiceServiceToggle');
+            const statusText = document.getElementById('voiceStatusText');
+
+            if (toggle) {
+                toggle.checked = voiceStatus.running;
+            }
+
+            if (statusText) {
+                statusText.textContent = voiceStatus.running ?
+                    `Active • ${voiceStatus.cameras.length} camera(s)` :
+                    'Stopped - enable to activate voice commands';
+            }
+
+            // Update wake word settings
+            const wakeWordInput = document.getElementById('wakeWordInput');
+            const wakeThresholdInput = document.getElementById('wakeThresholdInput');
+
+            if (wakeWordInput && voiceStatus.wakeWord) {
+                wakeWordInput.value = voiceStatus.wakeWord;
+            }
+
+            if (wakeThresholdInput && voiceStatus.wakeThreshold !== undefined) {
+                wakeThresholdInput.value = voiceStatus.wakeThreshold;
+            }
+
+            // Update camera list
+            const cameraList = document.getElementById('voiceCameraList');
+            if (cameraList && voiceStatus.cameras.length > 0) {
+                cameraList.innerHTML = voiceStatus.cameras.map(camera => `
+                    <div class="camera-item">
+                        <div class="camera-info">
+                            <div class="camera-icon">🎙️</div>
+                            <div>
+                                <div class="camera-name">${camera.name || formatRoomName(camera.room)}</div>
+                                <div class="camera-status">Speaker: ${camera.speaker}</div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } else if (cameraList) {
+                cameraList.innerHTML = '';
+            }
+        }
+
+        async function toggleVoiceService(enabled) {
+            const action = enabled ? 'start' : 'stop';
+            showToast(enabled ? 'Starting voice service...' : 'Stopping voice service...');
+
+            try {
+                const resp = await fetch(`/api/voice/${action}`, {
+                    method: 'POST'
+                });
+
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.ok) {
+                        voiceStatus.running = enabled;
+                        updateVoiceUI();
+                        showToast(result.message || (enabled ? 'Voice service started' : 'Voice service stopped'));
+
+                        // Refresh status after a delay to get updated state
+                        setTimeout(refreshVoiceStatus, 1000);
+                    } else {
+                        // Revert toggle on error
+                        document.getElementById('voiceServiceToggle').checked = !enabled;
+                        showToast('Error: ' + (result.error || 'Unknown error'));
+                    }
+                } else {
+                    // Revert toggle on error
+                    document.getElementById('voiceServiceToggle').checked = !enabled;
+                    showToast('Failed to ' + action + ' voice service');
+                }
+            } catch (e) {
+                console.error('Error toggling voice service:', e);
+                // Revert toggle on error
+                document.getElementById('voiceServiceToggle').checked = !enabled;
+                showToast('Failed to ' + action + ' voice service');
+            }
+        }
+
+        async function updateWakeWord(value) {
+            try {
+                const resp = await fetch('/api/voice/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'wakeWord', value: value })
+                });
+
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.ok) {
+                        voiceStatus.wakeWord = value;
+                        showToast(result.message || 'Wake word updated');
+
+                        // If service is running, show restart prompt
+                        if (result.needsRestart && voiceStatus.running) {
+                            if (confirm('Voice service needs to be restarted for changes to take effect. Restart now?')) {
+                                await toggleVoiceService(false);
+                                setTimeout(() => toggleVoiceService(true), 1000);
+                            }
+                        }
+                    } else {
+                        showToast('Error: ' + (result.error || 'Failed to update wake word'));
+                        // Revert select
+                        document.getElementById('wakeWordInput').value = voiceStatus.wakeWord;
+                    }
+                } else {
+                    showToast('Failed to update wake word');
+                    document.getElementById('wakeWordInput').value = voiceStatus.wakeWord;
+                }
+            } catch (e) {
+                console.error('Error updating wake word:', e);
+                showToast('Failed to update wake word');
+                document.getElementById('wakeWordInput').value = voiceStatus.wakeWord;
+            }
+        }
+
+        async function updateWakeThreshold(value) {
+            try {
+                const resp = await fetch('/api/voice/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'wakeThreshold', value: value })
+                });
+
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.ok) {
+                        voiceStatus.wakeThreshold = value;
+                        showToast(result.message || 'Wake threshold updated');
+
+                        // If service is running, show restart prompt
+                        if (result.needsRestart && voiceStatus.running) {
+                            if (confirm('Voice service needs to be restarted for changes to take effect. Restart now?')) {
+                                await toggleVoiceService(false);
+                                setTimeout(() => toggleVoiceService(true), 1000);
+                            }
+                        }
+                    } else {
+                        showToast('Error: ' + (result.error || 'Failed to update wake threshold'));
+                        document.getElementById('wakeThresholdInput').value = voiceStatus.wakeThreshold;
+                    }
+                } else {
+                    showToast('Failed to update wake threshold');
+                    document.getElementById('wakeThresholdInput').value = voiceStatus.wakeThreshold;
+                }
+            } catch (e) {
+                console.error('Error updating wake threshold:', e);
+                showToast('Failed to update wake threshold');
+                document.getElementById('wakeThresholdInput').value = voiceStatus.wakeThreshold;
+            }
+        }
+
         async function toggleJarvis() {
             const enabled = document.getElementById('masterToggle').checked;
-            
+
             // Send action to agent via postMessage
             window.parent.postMessage({
                 type: 'jarvis-action',
                 action: 'toggle',
                 enabled: enabled
             }, '*');
-            
+
             status.enabled = enabled;
             updateUI();
             showToast(enabled ? 'Jarvis Mode enabled' : 'Jarvis Mode disabled');
@@ -1160,6 +1394,51 @@
                 showToast('Active hours updated');
             } catch (e) {
                 showToast('Error updating active hours');
+            }
+        }
+
+        async function saveAllSettings() {
+            showToast('Saving all settings...');
+
+            try {
+                const settings = {
+                    checkIntervalMinutes: parseInt(document.getElementById('intervalInput').value),
+                    cooldownMinutes: parseInt(document.getElementById('cooldownInput').value),
+                    motionCooldownMinutes: parseInt(document.getElementById('motionCooldownInput').value),
+                    activeHours: {
+                        start: parseInt(document.getElementById('startHour').value),
+                        end: parseInt(document.getElementById('endHour').value)
+                    }
+                };
+
+                // Save interval first (triggers sync)
+                const intervalResp = await fetch('/api/setting', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: 'checkIntervalMinutes', value: settings.checkIntervalMinutes})
+                });
+
+                // Save other settings
+                for (const [key, value] of Object.entries(settings)) {
+                    if (key !== 'checkIntervalMinutes') {
+                        await fetch('/api/setting', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({key, value})
+                        });
+                    }
+                }
+
+                const intervalResult = await intervalResp.json();
+                if (intervalResult.cronSync?.synced) {
+                    showToast('All settings saved & poll interval synced');
+                } else {
+                    showToast('All settings saved');
+                }
+
+                setTimeout(refreshStatus, 500);
+            } catch (e) {
+                showToast('Error saving settings');
             }
         }
 

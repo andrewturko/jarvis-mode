@@ -7,6 +7,8 @@ import threading
 import queue
 import numpy as np
 import time
+import os
+import shutil
 from typing import Optional, Callable, Dict
 from pathlib import Path
 import json
@@ -74,16 +76,22 @@ class AudioStream:
             try:
                 self._run_ffmpeg()
             except Exception as e:
+                import traceback
                 print(f"[{self.room}] Stream error: {e}")
+                print(f"[{self.room}] Traceback: {traceback.format_exc()}")
                 time.sleep(5)  # Retry after delay
                 
     def _run_ffmpeg(self):
         """Run ffmpeg to capture RTSP audio stream."""
+        # Use absolute path to ffmpeg for launchd compatibility
+        ffmpeg_path = '/opt/homebrew/bin/ffmpeg'
+
         cmd = [
-            "ffmpeg",
+            ffmpeg_path,
             "-rtsp_transport", "tcp",
             "-i", self.rtsp_url,
-            "-vn",  # No video
+            "-map", "0:a:0",  # Explicitly select first audio stream (16kHz mono mic)
+            "-af", "volume=50",  # 50x boost to reach detection threshold
             "-acodec", "pcm_s16le",
             "-ar", str(self.sample_rate),
             "-ac", str(self.channels),
@@ -129,26 +137,21 @@ class MultiRoomAudioStream:
         
     def start(self):
         """Start all enabled camera streams."""
-        nvr_config = self.config.get("unifi_protect", {})
         audio_config = self.config.get("audio", {})
         cameras = self.config.get("cameras", {})
-        
-        nvr_ip = nvr_config.get("nvr_ip", "192.168.1.1")
-        rtsp_port = nvr_config.get("rtsp_port", 7447)
-        username = nvr_config.get("username", "")
-        password = nvr_config.get("password", "")
         
         for room, cam_config in cameras.items():
             if not cam_config.get("enabled", True):
                 continue
-                
-            rtsp_path = cam_config.get("rtsp_path", room)
             
-            # Build RTSP URL
-            if username and password:
-                rtsp_url = f"rtsp://{username}:{password}@{nvr_ip}:{rtsp_port}/{rtsp_path}"
-            else:
-                rtsp_url = f"rtsp://{nvr_ip}:{rtsp_port}/{rtsp_path}"
+            # Use full URL if provided, otherwise build from parts
+            rtsp_url = cam_config.get("rtsp_url")
+            if not rtsp_url:
+                nvr_config = self.config.get("unifi_protect", {})
+                nvr_ip = nvr_config.get("nvr_ip", "192.168.1.1")
+                rtsp_port = nvr_config.get("rtsp_port", 7441)
+                rtsp_path = cam_config.get("rtsp_path", room)
+                rtsp_url = f"rtsps://{nvr_ip}:{rtsp_port}/{rtsp_path}"
             
             stream = AudioStream(
                 room=room,
