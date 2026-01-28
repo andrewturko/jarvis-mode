@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-01-28T05:55:02.064754Z",
+  "decisions": {
+    "total": 4,
+    "spoke": 4,
+    "silent": 0,
+    "silence_rate": 0.0
+  },
+  "suggestions": {
+    "generated": 12,
+    "offered": 8,
+    "accepted": 0,
+    "rejected": 0,
+    "acceptance_rate": 0.0
+  },
+  "context": {
+    "total_inferences": 4,
+    "high_confidence": 4,
+    "avg_confidence": 0.85,
+    "confidence_sum": 3.4
+  },
+  "costs": {
+    "vision_api_calls": 4,
+    "total_vision_tokens": 5000,
+    "total_output_tokens": 180,
+    "estimated_usd": 0.0176
+  },
+  "performance": {
+    "snapshot_count": 4,
+    "snapshot_duration_ms_sum": 3400,
+    "avg_snapshot_ms": 850.0,
+    "inference_count": 4,
+    "inference_duration_ms_sum": 9360,
+    "avg_inference_ms": 2340.0
+  },
+  "errors": {
+    "ha_errors": 0,
+    "snapshot_errors": 0,
+    "vision_errors": 0,
+    "state_errors": 0
+  },
+  "recent_events": [
+    {
+      "timestamp": "2026-01-28T05:55:02.065229Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-28T05:58:58.508540Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-28T06:02:58.883846Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-28T06:09:53.628405Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    }
+  ]
+}

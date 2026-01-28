@@ -2,6 +2,8 @@
 """
 Life Context Engine
 Infers life context from observations, learns patterns, suggests actions.
+
+Now integrates with PatternAnalyzer for learned behavioral predictions.
 """
 
 import json
@@ -9,6 +11,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Add services to path for pattern analyzer
+sys.path.insert(0, str(Path(__file__).parent / "services"))
 
 SKILL_DIR = Path(__file__).parent.parent
 LIFE_MODEL_FILE = SKILL_DIR / "life-model.json"
@@ -167,25 +172,56 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
     }
 
 
-def get_suggestions(context_result: dict, capabilities: dict = None) -> list:
+def get_suggestions(context_result: dict, capabilities: dict = None, recent_actions: list = None) -> list:
     """
     Generate suggestions based on inferred context and available capabilities.
-    
+
+    Now integrates with PatternAnalyzer for data-driven predictions.
+
     Returns list of suggestion dicts with action, reason, priority.
     """
     if capabilities is None:
         capabilities = get_capabilities()
-    
+
     model = get_life_model()
     patterns = get_patterns()
-    
+
     context = context_result["context"]
     needs = context_result["typical_needs"]
     time_ctx = context_result["time"]
-    
+
     suggestions = []
-    
-    # Check learned patterns first
+
+    # === NEW: Query PatternAnalyzer for data-driven predictions ===
+    try:
+        from pattern_analyzer import PatternAnalyzer
+        analyzer = PatternAnalyzer()
+
+        current_context = {
+            "hour": time_ctx.get("hour", datetime.now().hour),
+            "is_weekend": time_ctx.get("is_weekend", False),
+            "recent_actions": recent_actions or []
+        }
+
+        predictions = analyzer.get_predictions(current_context)
+
+        for pred in predictions:
+            if pred["confidence"] >= 0.3:  # Only suggest if 30%+ confident
+                suggestions.append({
+                    "action": f"{pred['entity_id']} -> {pred['predicted_state']}",
+                    "entity_id": pred["entity_id"],
+                    "predicted_state": pred["predicted_state"],
+                    "reason": pred["reason"],
+                    "priority": "high" if pred["confidence"] >= 0.6 else "medium",
+                    "learned": True,
+                    "source": "pattern_analyzer",
+                    "confidence": pred["confidence"]
+                })
+    except Exception as e:
+        # PatternAnalyzer not available or no data yet - fall back to static rules
+        pass
+
+    # Check file-based learned patterns (legacy)
     learned = patterns.get("learned_patterns", {}).get("patterns", {})
     for need in needs:
         pattern_key = f"{context}+{need}"
@@ -197,6 +233,7 @@ def get_suggestions(context_result: dict, capabilities: dict = None) -> list:
                     "reason": f"You usually want this during {context}",
                     "priority": "high",
                     "learned": True,
+                    "source": "file_patterns",
                     "acceptance_rate": pattern["acceptance_rate"]
                 })
     
@@ -308,6 +345,328 @@ def record_suggestion_response(suggestion: dict, accepted: bool):
         learned[pattern_key]["acceptance_rate"] = round(acc / total, 2) if total > 0 else 0
     
     save_patterns(patterns)
+
+
+def should_stay_silent(
+    context: dict,
+    suggestions: list,
+    recent_history: list
+) -> tuple[bool, str]:
+    """
+    Determine if Jarvis should stay silent or speak.
+
+    Returns (should_be_silent, reason)
+
+    SPEAK if:
+    - Context just changed (confidence > 0.7) AND suggestions available
+    - Safety/security issue detected
+    - User explicitly requested check
+    - New actionable suggestion (not offered recently)
+
+    STAY SILENT if:
+    - Same context, no new suggestions
+    - Same suggestion offered < 2 hours ago
+    - Low confidence (< 0.5)
+    - Focus context (working, sleeping)
+    - No actionable suggestions
+
+    Args:
+        context: Context inference result dict
+        suggestions: List of generated suggestions
+        recent_history: Recent decision/observation history
+
+    Returns:
+        Tuple of (should_be_silent, reason_string)
+    """
+    ctx_name = context.get("context", "unknown")
+    confidence = context.get("confidence", 0)
+    previous_context = context.get("previous_context")
+
+    # Rule 1: Low confidence -> stay silent
+    if confidence < 0.5:
+        return True, f"Low confidence ({confidence:.2f})"
+
+    # Rule 2: No suggestions -> stay silent
+    if not suggestions:
+        return True, "No actionable suggestions"
+
+    # Rule 3: Focus contexts -> stay silent
+    focus_contexts = ["working", "sleeping", "concentrating", "on_call", "meeting"]
+    if ctx_name in focus_contexts:
+        return True, f"Focus context ({ctx_name})"
+
+    # Rule 4: Context just changed with high confidence -> speak
+    if previous_context and previous_context != ctx_name and confidence > 0.7:
+        return False, f"Context transition: {previous_context} → {ctx_name}"
+
+    # Rule 5: Check if suggestions are new (not in recent history)
+    recent_suggestions = _extract_recent_suggestions(recent_history, hours=2)
+    new_suggestions = _filter_new_suggestions(suggestions, recent_suggestions)
+
+    if not new_suggestions:
+        return True, "All suggestions offered recently"
+
+    # Rule 6: High-value suggestion with good acceptance rate -> speak
+    high_value = [s for s in new_suggestions if s.get("acceptance_rate", 0) > 0.7]
+    if high_value:
+        return False, f"High-value suggestion available (acceptance rate > 70%)"
+
+    # Rule 7: Safety or urgent issue -> speak
+    urgent_types = ["safety", "security", "emergency", "alert"]
+    urgent_suggestions = [s for s in suggestions if s.get("priority") == "urgent" or s.get("type") in urgent_types]
+    if urgent_suggestions:
+        return False, "Safety or urgent issue detected"
+
+    # Rule 8: Context stable with medium suggestions -> conditional speak
+    if len(new_suggestions) > 0 and confidence > 0.6:
+        return False, f"New suggestions available with good confidence ({confidence:.2f})"
+
+    # Default: stay silent
+    return True, "No compelling reason to speak"
+
+
+def _extract_recent_suggestions(history: list, hours: int = 2) -> list:
+    """
+    Extract suggestions from recent history.
+
+    Args:
+        history: List of recent observations/decisions
+        hours: How many hours to look back
+
+    Returns:
+        List of recent suggestions
+    """
+    cutoff = datetime.now() - timedelta(hours=hours)
+    recent = []
+
+    for entry in history:
+        try:
+            timestamp = datetime.fromisoformat(entry.get("timestamp", ""))
+            if timestamp >= cutoff:
+                # Extract suggestions if present
+                if "suggestions" in entry:
+                    recent.extend(entry["suggestions"])
+                if "suggestion" in entry:
+                    recent.append(entry["suggestion"])
+        except (ValueError, AttributeError):
+            continue
+
+    return recent
+
+
+def _filter_new_suggestions(suggestions: list, recent: list) -> list:
+    """
+    Filter out suggestions that were offered recently.
+
+    Args:
+        suggestions: Current suggestions
+        recent: Recently offered suggestions
+
+    Returns:
+        List of new (not recently offered) suggestions
+    """
+    if not recent:
+        return suggestions
+
+    # Build set of recent suggestion keys
+    recent_keys = set()
+    for sugg in recent:
+        # Use type+action as key, or just action if type not present
+        if "type" in sugg and "action" in sugg:
+            key = f"{sugg['type']}:{sugg['action']}"
+        elif "action" in sugg:
+            key = sugg["action"]
+        else:
+            continue
+        recent_keys.add(key)
+
+    # Filter new suggestions
+    new = []
+    for sugg in suggestions:
+        if "type" in sugg and "action" in sugg:
+            key = f"{sugg['type']}:{sugg['action']}"
+        elif "action" in sugg:
+            key = sugg["action"]
+        else:
+            new.append(sugg)  # Include suggestions without action
+            continue
+
+        if key not in recent_keys:
+            new.append(sugg)
+
+    return new
+
+
+def get_recent_observations(room: str, hours: int = 2) -> list:
+    """
+    Get recent observations for a room within time window.
+
+    Temporal context - what's been happening in this room.
+
+    Args:
+        room: Room name
+        hours: Number of hours to look back
+
+    Returns:
+        List of observation dicts with timestamps
+    """
+    state = load_json(STATE_FILE)
+    rooms = state.get("rooms", {})
+    room_state = rooms.get(room, {})
+    observations = room_state.get("recent_observations", [])
+
+    # Filter by time window
+    cutoff = datetime.now() - timedelta(hours=hours)
+    recent = []
+
+    for obs in observations:
+        try:
+            obs_time = datetime.fromisoformat(obs.get("timestamp", ""))
+            if obs_time >= cutoff:
+                recent.append(obs)
+        except (ValueError, KeyError):
+            continue
+
+    return recent
+
+
+def infer_context_from_state(state: dict) -> dict:
+    """
+    Infer context from full state (all rooms).
+
+    Useful for getting global context without needing to pass room observations.
+
+    Args:
+        state: Full state dict from state.json
+
+    Returns:
+        Context inference result
+    """
+    # Build room observations from state
+    rooms = state.get("rooms", {})
+    room_observations = {}
+
+    for room, room_state in rooms.items():
+        occupancy = room_state.get("occupancy", {})
+        is_occupied = occupancy.get("current", False)
+
+        room_observations[room] = {
+            "person_detected": is_occupied,
+            "activity_duration": 0  # Could calculate from changed_at
+        }
+
+    # Build home state
+    home_state = {
+        "occupied_rooms": sum(1 for obs in room_observations.values() if obs["person_detected"]),
+        "total_rooms": len(room_observations)
+    }
+
+    # Infer context
+    return infer_context(room_observations, home_state)
+
+
+def get_context_transitions() -> list:
+    """
+    Detect recent context changes.
+
+    Analyzes decision log to find context transitions.
+
+    Returns:
+        List of context transition dicts with from_context, to_context, timestamp
+    """
+    state = load_json(STATE_FILE)
+    decision_log = state.get("decision_log", [])
+
+    transitions = []
+    last_context = None
+
+    for decision in reversed(decision_log):  # Oldest to newest
+        context = decision.get("context_inferred")
+        timestamp = decision.get("timestamp")
+
+        if context and last_context and context != last_context:
+            transitions.append({
+                "from_context": last_context,
+                "to_context": context,
+                "timestamp": timestamp,
+                "room": decision.get("room")
+            })
+
+        last_context = context
+
+    # Return most recent first
+    return list(reversed(transitions))
+
+
+def infer_global_context(all_rooms: dict) -> dict:
+    """
+    Infer household-level context from all rooms.
+
+    Determines overall state: away, guests_over, settled, active, etc.
+
+    Args:
+        all_rooms: Dict of room_name -> room_state
+
+    Returns:
+        Dict with global_context, confidence, signals
+    """
+    time_ctx = get_time_context()
+
+    # Count occupied rooms
+    occupied_rooms = []
+    for room, room_state in all_rooms.items():
+        occupancy = room_state.get("occupancy", {})
+        if occupancy.get("current", False):
+            occupied_rooms.append(room)
+
+    occupied_count = len(occupied_rooms)
+    total_count = len(all_rooms)
+
+    signals = []
+    global_context = "unknown"
+    confidence = 0.5
+
+    # Determine global context
+    if occupied_count == 0:
+        global_context = "away"
+        signals.append("no_occupancy")
+        confidence = 0.9
+    elif occupied_count == 1:
+        global_context = "normal_activity"
+        signals.append("single_room_occupied")
+        confidence = 0.7
+
+        # Refine based on which room
+        if "primary_bedroom" in occupied_rooms:
+            if time_ctx["is_late_night"] or time_ctx["is_morning"]:
+                global_context = "sleeping" if time_ctx["is_late_night"] else "waking_up"
+                signals.append("bedroom_hours")
+                confidence = 0.85
+    elif occupied_count >= 3:
+        global_context = "active_household"
+        signals.append("multiple_rooms_occupied")
+        confidence = 0.75
+
+        # Could be guests or just active day
+        if occupied_count >= 4:
+            signals.append("high_activity")
+            global_context = "guests_over"
+            confidence = 0.6  # Lower confidence, might just be moving around
+
+    # Evening settled pattern
+    if time_ctx["is_evening"] and occupied_count == 1 and "living_room" in occupied_rooms:
+        global_context = "settled_evening"
+        signals.append("evening_single_room")
+        confidence = 0.8
+
+    return {
+        "global_context": global_context,
+        "confidence": confidence,
+        "signals": signals,
+        "occupied_rooms": occupied_rooms,
+        "occupied_count": occupied_count,
+        "time": time_ctx
+    }
 
 
 def update_current_context(context: str, room: str):

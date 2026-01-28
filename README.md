@@ -59,6 +59,50 @@ Full-featured UI for configuration and monitoring:
 - **Sonos**: Music control and favorites
 - **Any Clawdbot channel**: Telegram, Discord, iMessage, etc.
 
+### Behavioral Learning
+
+Jarvis learns your patterns over time — no manual programming required.
+
+**How it works:**
+- A background service logs every Home Assistant state change (lights, switches, media, climate, shades, etc.)
+- Pattern analyzer identifies recurring behaviors:
+  - **Time patterns**: "Sonos starts playing around 6pm" / "Thermostat drops to 68 at 10pm"
+  - **Sequence patterns**: "When you enter the kitchen, coffee maker turns on within 2 min"
+  - **Context chains**: "Friday + living room + 8pm → movie mode (dim lights, Apple TV, close shades)"
+
+**What emerges:**
+
+| Time Collected | What Jarvis Learns |
+|----------------|-------------------|
+| 1-3 days | Basic time-of-day patterns |
+| 1 week | Action sequences and room transitions |
+| 2 weeks | Contextual preferences (evening vs morning routines) |
+| 1 month | Anomaly awareness ("why is everything on at 3am?") |
+
+**How predictions flow:**
+```
+Observation → Pattern Match → Confidence Score → Natural Suggestion
+```
+
+Works across everything Clawdbot can control:
+- **Lights**: "Getting dark — want me to bring up the counter lights?"
+- **Music**: "You usually put on jazz around now. Chill House?"
+- **Climate**: "Heading to bed? I can drop the thermostat to 68."
+- **Shades**: "Sun's going down — close the bedroom shades?"
+- **Media**: "Friday night, settling in — movie mode?"
+- **Scenes**: "Looks like a work-from-home day. Focus mode?"
+
+High-confidence patterns (70%+) become proactive offers; lower-confidence ones inform context without forcing suggestions.
+
+**Storage:** ~10-20MB/month. Auto-prunes events older than 90 days.
+
+**CLI:**
+```bash
+jarvis.py events --hours 24     # View collected events
+jarvis.py patterns              # View learned patterns
+jarvis.py patterns --predict    # Get predictions for now
+```
+
 ## Example Interactions
 
 ### Evening Wind-Down
@@ -433,6 +477,18 @@ def handle_occupied_room(room_name):
     # Add: Weather-based recommendations
     ...
 ```
+
+## Documentation
+
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+- **[Skill Definition](SKILL.md)** - Skill capabilities and integration
+- **[What's New](docs/WHATS_NEW.md)** - See all enhancements from Phases 1-4
+- **[Testing Guide](docs/TESTING_GUIDE.md)** - Complete testing instructions
+- **[Phase 1 Complete](docs/PHASE_1_COMPLETE.md)** - Foundation implementation details
+- **[State Accuracy Fix](docs/STATE_ACCURACY_FIX.md)** - Technical deep dive on UI accuracy
+
+See the [docs/README.md](docs/README.md) for a complete documentation index.
 
 ## Contributing
 

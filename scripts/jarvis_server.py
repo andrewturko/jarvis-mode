@@ -17,15 +17,125 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from jarvis import (
     get_status, get_config, save_json, is_enabled, is_active_hours,
-    should_check_room, record_observation, CONFIG_FILE, SKILL_DIR,
-    HA_URL, HA_TOKEN
+    should_check_room, record_observation, CONFIG_FILE, SKILL_DIR
 )
+from services.ha_service import HAService
+from core.metrics import get_metrics_collector
+from core.state_manager import StateManager
 
 PORT = int(os.environ.get('JARVIS_PORT', '8088'))
 UI_DIR = SKILL_DIR / "ui"
+STATE_FILE = SKILL_DIR / "state.json"
 
 # Telegram notification (via Clawdbot gateway)
 # (GATEWAY_URL defined below near notify_clawdbot)
+
+
+def get_health_status():
+    """
+    Get comprehensive health status of Jarvis system.
+
+    Returns:
+        Dict with overall status and component health
+    """
+    from services.ha_service import HAService
+
+    health = {
+        "status": "healthy",
+        "timestamp": json.loads(json.dumps({"t": "now"}))["t"],  # ISO format
+        "components": {}
+    }
+
+    # Check Home Assistant
+    try:
+        ha_service = HAService()
+        ha_health = ha_service.check_health()
+        health["components"]["home_assistant"] = ha_health
+
+        if ha_health["status"] != "up":
+            health["status"] = "degraded"
+    except Exception as e:
+        health["components"]["home_assistant"] = {
+            "status": "down",
+            "error": str(e)
+        }
+        health["status"] = "degraded"
+
+    # Check state file
+    try:
+        if STATE_FILE.exists():
+            state_manager = StateManager(STATE_FILE)
+            state = state_manager.read_state()
+            last_write = state.get("last_updated", "unknown")
+            health["components"]["state_file"] = {
+                "status": "ok",
+                "last_write": last_write
+            }
+        else:
+            health["components"]["state_file"] = {
+                "status": "missing",
+                "error": "State file not found"
+            }
+            health["status"] = "degraded"
+    except Exception as e:
+        health["components"]["state_file"] = {
+            "status": "error",
+            "error": str(e)
+        }
+        health["status"] = "degraded"
+
+    # Check cameras
+    try:
+        config = get_config()
+        cameras_status = {}
+        for room, cam_config in config.get("cameras", {}).items():
+            if cam_config.get("enabled", True):
+                # Simple check - just verify entity ID is configured
+                entity_id = cam_config.get("entity_id")
+                cameras_status[room] = "ok" if entity_id else "missing_entity_id"
+
+        health["components"]["cameras"] = cameras_status
+
+        if any(status != "ok" for status in cameras_status.values()):
+            health["status"] = "degraded"
+    except Exception as e:
+        health["components"]["cameras"] = {
+            "error": str(e)
+        }
+        health["status"] = "degraded"
+
+    return health
+
+
+def get_recent_decisions(limit: int = 20):
+    """
+    Get recent decision log entries.
+
+    Args:
+        limit: Maximum number of decisions to return
+
+    Returns:
+        Dict with recent decisions
+    """
+    try:
+        state_manager = StateManager(STATE_FILE)
+        state = state_manager.read_state()
+        decision_log = state.get("decision_log", [])
+
+        # Return most recent decisions
+        recent = decision_log[-limit:] if len(decision_log) > limit else decision_log
+        recent.reverse()  # Most recent first
+
+        return {
+            "total_decisions": len(decision_log),
+            "showing": len(recent),
+            "decisions": recent
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "decisions": []
+        }
 
 
 class JarvisHandler(SimpleHTTPRequestHandler):
@@ -45,14 +155,28 @@ class JarvisHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        
+
         # API endpoints
         if path == '/api/status':
             self.send_json(get_status())
             return
 
         if path == '/api/health':
-            self.send_json({"status": "ok", "port": PORT})
+            self.send_json(get_health_status())
+            return
+
+        if path == '/api/metrics':
+            metrics = get_metrics_collector()
+            self.send_json(metrics.get_summary())
+            return
+
+        if path == '/api/metrics/raw':
+            metrics = get_metrics_collector()
+            self.send_json(metrics.get_metrics())
+            return
+
+        if path == '/api/decisions/recent':
+            self.send_json(get_recent_decisions())
             return
 
         # Voice service status
@@ -63,7 +187,7 @@ class JarvisHandler(SimpleHTTPRequestHandler):
         if path == '/api/voice/cameras':
             self.send_json(get_voice_cameras())
             return
-        
+
         # Serve static files (UI)
         super().do_GET()
     
@@ -336,9 +460,11 @@ def refresh_home_inventory():
     """Run the inventory refresh script."""
     import subprocess
     try:
+        # Get HA config from service
+        ha_service = HAService()
         env = os.environ.copy()
-        env["HA_URL"] = HA_URL
-        env["HA_TOKEN"] = HA_TOKEN
+        env["HA_URL"] = ha_service.url
+        env["HA_TOKEN"] = ha_service.token
         result = subprocess.run(
             ["python3", str(SKILL_DIR / "scripts" / "refresh-inventory.py")],
             capture_output=True,
@@ -363,13 +489,14 @@ def refresh_home_inventory():
 
 def handle_manual_check(room):
     """Handle manual check request from UI."""
+    import time
     config = get_config()
-    
+
     if room == 'all':
         rooms = list(config.get('cameras', {}).keys())
     else:
         rooms = [room]
-    
+
     # Record pending observations so UI shows immediate feedback
     for r in rooms:
         record_observation(r, {
@@ -377,11 +504,14 @@ def handle_manual_check(room):
             "summary": "🔄 Analysis in progress...",
             "pending": True
         })
-    
+
     # Manual check bypasses cooldown and motion-aware settings
-    for r in rooms:
+    # Add delay between webhooks to avoid overwhelming Clawdbot agent queue
+    for i, r in enumerate(rooms):
+        if i > 0:
+            time.sleep(2)  # 2 second delay between rooms
         notify_clawdbot(r, manual=True)
-    
+
     return {
         "checking": rooms,
         "message": f"Analysis requested for: {', '.join(rooms)}"

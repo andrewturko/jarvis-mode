@@ -1,1075 +1,1065 @@
 #!/usr/bin/env python3
 """
-Jarvis Mode - Observation Engine
-Handles camera snapshots and state management for proactive home suggestions.
+Jarvis Mode - Proactive home intelligence system for Clawdbot.
+
+CLI interface for managing Jarvis Mode and interacting with home automation.
 """
 
 import json
-import os
 import sys
-import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
+# Add scripts directory to path for imports
+SCRIPT_DIR = Path(__file__).parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+# Core infrastructure
+from core import StateManager, JarvisConfig, get_logger, setup_logging
+
+# Services
+from services import HAService, SnapshotService, OccupancyService
+from services.context_service import ContextService
+
+# Handlers
+from handlers import EmptyRoomHandler, OccupiedRoomHandler
+
+# Intelligence
+import life_context
+
+# Paths
 SKILL_DIR = Path(__file__).parent.parent
+PATTERNS_FILE = SKILL_DIR / "patterns.json"
 CONFIG_FILE = SKILL_DIR / "config.json"
 STATE_FILE = SKILL_DIR / "state.json"
-PATTERNS_FILE = SKILL_DIR / "patterns.json"
 SNAPSHOT_DIR = SKILL_DIR / "snapshots"
 HOOKS_FILE = SKILL_DIR / "hooks.json"
-GATEWAY_URL = os.environ.get("CLAWDBOT_GATEWAY", "http://127.0.0.1:18789")
 
-# Environment - try env vars first, then clawdbot config
-def _get_ha_config():
-    """Get HA config from environment or clawdbot config."""
-    url = os.environ.get("HA_URL")
-    token = os.environ.get("HA_TOKEN")
-    
-    if not url or not token:
-        # Try reading from clawdbot config
+# Initialize logging
+setup_logging(log_level="INFO")
+logger = get_logger("jarvis.cli")
+
+
+class JarvisCLI:
+    """
+    Command-line interface for Jarvis Mode.
+
+    Provides all CLI commands and delegates to service modules.
+    """
+
+    def __init__(self):
+        """Initialize CLI with all services."""
         try:
-            config_path = Path.home() / ".clawdbot" / "clawdbot.json"
-            with open(config_path) as f:
-                config = json.load(f)
-                env_vars = config.get("env", {}).get("vars", {})
-                url = url or env_vars.get("HA_URL", "http://homeassistant.local:8123")
-                token = token or env_vars.get("HA_TOKEN", "")
-        except:
-            pass
-    
-    return url or "http://homeassistant.local:8123", token or ""
+            # Load configuration
+            self.config = JarvisConfig.load(CONFIG_FILE)
 
-HA_URL, HA_TOKEN = _get_ha_config()
+            # Initialize state manager
+            self.state_manager = StateManager(STATE_FILE)
 
+            # Initialize HA service
+            self.ha_service = HAService()
 
-def load_json(path):
-    """Load JSON file."""
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Error loading {path}: {e}", file=sys.stderr)
-        return {}
-
-
-def save_json(path, data):
-    """Save JSON file."""
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-
-
-def get_config():
-    """Get current config."""
-    return load_json(CONFIG_FILE)
-
-
-def get_state():
-    """Get current state."""
-    return load_json(STATE_FILE)
-
-
-def save_state(state):
-    """Save state."""
-    save_json(STATE_FILE, state)
-
-
-def is_enabled():
-    """Check if Jarvis mode is enabled."""
-    config = get_config()
-    return config.get("enabled", False)
-
-
-def is_active_hours():
-    """Check if current time is within active hours."""
-    config = get_config()
-    hours = config.get("activeHours", {"start": 7, "end": 23})
-    start = hours.get("start", 7)
-    end = hours.get("end", 23)
-    
-    # 0-0 or 0-24 means 24/7
-    if (start == 0 and end == 0) or (start == 0 and end == 24):
-        return True
-    
-    current_hour = datetime.now().hour
-    return start <= current_hour < end
-
-
-def should_check_room(room_name, trigger="scheduled"):
-    """
-    Determine if a room should be checked.
-    
-    Args:
-        room_name: Room to check
-        trigger: "scheduled" (interval) or "motion" (motion-triggered)
-    
-    Returns:
-        dict with 'should_check', 'reason', and 'motion_state'
-    """
-    config = get_config()
-    state = get_state()
-    
-    # Get cooldown based on trigger type
-    if trigger == "motion":
-        cooldown_minutes = config.get("motionCooldownMinutes", 10)
-    else:
-        cooldown_minutes = config.get("cooldownMinutes", 30)
-    
-    room_state = state.get("rooms", {}).get(room_name, {})
-    last_check = room_state.get("lastCheck")
-    
-    # Check cooldown
-    cooldown_ok = True
-    minutes_remaining = 0
-    if last_check:
-        last_check_time = datetime.fromisoformat(last_check)
-        elapsed = datetime.now() - last_check_time
-        cooldown_ok = elapsed > timedelta(minutes=cooldown_minutes)
-        if not cooldown_ok:
-            minutes_remaining = cooldown_minutes - int(elapsed.total_seconds() / 60)
-    
-    if not cooldown_ok:
-        return {
-            "should_check": False,
-            "reason": f"cooldown ({minutes_remaining}m remaining)",
-            "motion_state": None
-        }
-    
-    # Check motion if motion-aware is enabled (for scheduled checks)
-    motion_aware = config.get("motionAware", True)
-    motion_state = get_motion_state(room_name)
-    
-    if trigger == "scheduled" and motion_aware:
-        if motion_state is False:  # Explicitly no motion (not None/unknown)
-            return {
-                "should_check": False,
-                "reason": "no motion detected",
-                "motion_state": motion_state
-            }
-    
-    return {
-        "should_check": True,
-        "reason": "ready",
-        "motion_state": motion_state
-    }
-
-
-def should_check_room_simple(room_name):
-    """Simple boolean check for backward compatibility."""
-    result = should_check_room(room_name)
-    return result["should_check"]
-
-
-def get_camera_snapshot(room_name, manual=False):
-    """
-    Get camera snapshot from Home Assistant.
-    
-    Args:
-        room_name: Room to snapshot
-        manual: If True, bypass cooldown (user-requested)
-    
-    Returns:
-        Path to snapshot file, or None if failed/blocked by cooldown
-    """
-    config = get_config()
-    state = get_state()
-    camera_config = config.get("cameras", {}).get(room_name, {})
-    entity_id = camera_config.get("entity_id")
-    
-    if not entity_id or not HA_TOKEN:
-        return None
-    
-    # Check cooldown for automated requests
-    if not manual:
-        cooldown_minutes = config.get("cooldownMinutes", 30)
-        room_state = state.get("rooms", {}).get(room_name, {})
-        last_snapshot = room_state.get("lastSnapshot")
-        
-        if last_snapshot:
-            last_time = datetime.fromisoformat(last_snapshot)
-            elapsed = datetime.now() - last_time
-            if elapsed < timedelta(minutes=cooldown_minutes):
-                remaining = cooldown_minutes - int(elapsed.total_seconds() / 60)
-                print(f"Snapshot blocked: {room_name} in cooldown ({remaining}m remaining)", file=sys.stderr)
-                return None
-    
-    # Ensure snapshot directory exists
-    SNAPSHOT_DIR.mkdir(exist_ok=True)
-    
-    # Get snapshot from HA
-    snapshot_path = SNAPSHOT_DIR / f"{room_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-    
-    try:
-        result = subprocess.run([
-            "curl", "-s", "-o", str(snapshot_path),
-            f"{HA_URL}/api/camera_proxy/{entity_id}",
-            "-H", f"Authorization: Bearer {HA_TOKEN}"
-        ], capture_output=True, timeout=30)
-        
-        if snapshot_path.exists() and snapshot_path.stat().st_size > 1000:
-            # Record snapshot time for cooldown tracking
-            if "rooms" not in state:
-                state["rooms"] = {}
-            if room_name not in state["rooms"]:
-                state["rooms"][room_name] = {}
-            state["rooms"][room_name]["lastSnapshot"] = datetime.now().isoformat()
-            save_state(state)
-            return str(snapshot_path)
-        else:
-            snapshot_path.unlink(missing_ok=True)
-            return None
-    except Exception as e:
-        print(f"Error getting snapshot for {room_name}: {e}", file=sys.stderr)
-        return None
-
-
-def get_motion_state(room_name):
-    """Check if motion is detected in a room via HA sensor."""
-    config = get_config()
-    camera_config = config.get("cameras", {}).get(room_name, {})
-    motion_sensor = camera_config.get("motionSensor")
-    
-    if not motion_sensor or not HA_TOKEN:
-        return None
-    
-    try:
-        result = subprocess.run([
-            "curl", "-s",
-            f"{HA_URL}/api/states/{motion_sensor}",
-            "-H", f"Authorization: Bearer {HA_TOKEN}"
-        ], capture_output=True, text=True, timeout=10)
-        
-        data = json.loads(result.stdout)
-        return data.get("state") == "on"
-    except Exception as e:
-        print(f"Error checking motion for {room_name}: {e}", file=sys.stderr)
-        return None
-
-
-def get_home_state():
-    """Get current home state (lights, music, etc.) from HA."""
-    if not HA_TOKEN:
-        return {}
-    
-    try:
-        result = subprocess.run([
-            "curl", "-s",
-            f"{HA_URL}/api/states",
-            "-H", f"Authorization: Bearer {HA_TOKEN}"
-        ], capture_output=True, text=True, timeout=30)
-        
-        states = json.loads(result.stdout)
-        
-        # Extract relevant state
-        home_state = {
-            "lights_on": [],
-            "lights_off": [],
-            "media_playing": [],
-            "climate": {}
-        }
-        
-        for entity in states:
-            eid = entity.get("entity_id", "")
-            state = entity.get("state", "")
-            
-            if eid.startswith("light."):
-                if state == "on":
-                    home_state["lights_on"].append(eid)
-                else:
-                    home_state["lights_off"].append(eid)
-            elif eid.startswith("media_player."):
-                if state == "playing":
-                    home_state["media_playing"].append(eid)
-            elif eid.startswith("climate."):
-                home_state["climate"][eid] = state
-        
-        return home_state
-    except Exception as e:
-        print(f"Error getting home state: {e}", file=sys.stderr)
-        return {}
-
-
-def record_observation(room_name, observation):
-    """Record an observation for a room."""
-    state = get_state()
-    
-    if "rooms" not in state:
-        state["rooms"] = {}
-    if room_name not in state["rooms"]:
-        state["rooms"][room_name] = {"recentObservations": []}
-    
-    state["rooms"][room_name]["lastCheck"] = datetime.now().isoformat()
-    state["rooms"][room_name]["lastActivity"] = observation.get("activity")
-    
-    # Get existing observations
-    observations = state["rooms"][room_name].get("recentObservations", [])
-    
-    # If this is NOT a pending observation, remove any pending ones for this room first
-    if not observation.get("pending"):
-        observations = [o for o in observations if not o.get("pending")]
-    
-    # Add new observation
-    observations.insert(0, {
-        "timestamp": datetime.now().isoformat(),
-        **observation
-    })
-    
-    # Keep last 5 non-pending observations per room
-    state["rooms"][room_name]["recentObservations"] = observations[:5]
-    
-    state["lastGlobalCheck"] = datetime.now().isoformat()
-    save_state(state)
-
-
-def set_enabled(enabled):
-    """Enable or disable Jarvis mode."""
-    config = get_config()
-    config["enabled"] = enabled
-    save_json(CONFIG_FILE, config)
-    return config
-
-
-def get_status():
-    """Get full Jarvis status."""
-    config = get_config()
-    state = get_state()
-    
-    # Build room states with motion info
-    room_states = {}
-    all_observations = []
-    for room in config.get("cameras", {}):
-        room_data = state.get("rooms", {}).get(room, {})
-        check_result = should_check_room(room)
-        room_states[room] = {
-            "lastCheck": room_data.get("lastCheck"),
-            "lastActivity": room_data.get("lastActivity"),
-            "shouldCheck": check_result["should_check"],
-            "reason": check_result["reason"],
-            "motionDetected": check_result["motion_state"],
-            "lastOccupancy": room_data.get("lastOccupancy"),
-            "occupancyChangedAt": room_data.get("occupancyChangedAt")
-        }
-        # Collect observations with room name
-        for obs in room_data.get("recentObservations", []):
-            all_observations.append({"room": room, **obs})
-    
-    # Sort all observations by timestamp descending
-    all_observations.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-    
-    return {
-        "enabled": config.get("enabled", False),
-        "activeHours": is_active_hours(),
-        "activeHoursConfig": config.get("activeHours", {"start": 7, "end": 23}),
-        "checkInterval": config.get("checkIntervalMinutes", 5),
-        "cooldown": config.get("cooldownMinutes", 30),
-        "motionCooldown": config.get("motionCooldownMinutes", 10),
-        "motionAware": config.get("motionAware", True),
-        "instantAlerts": config.get("instantAlerts", False),
-        "quietMode": config.get("quietMode", True),
-        "autoActions": config.get("autoActions", {"enabled": False}),
-        "lastCheck": state.get("lastGlobalCheck"),
-        "lastPoll": state.get("lastPoll"),
-        "cameras": list(config.get("cameras", {}).keys()),
-        "roomStates": room_states,
-        "recentObservations": all_observations[:5]
-    }
-
-
-def get_room_lights(room_name):
-    """Get lights that are on in a specific room."""
-    if not HA_TOKEN:
-        return []
-    
-    # Map room names to specific light entity IDs or patterns
-    room_lights_map = {
-        "kitchen": [
-            "light.adaptive_phase_dimmer_counter",
-        ],
-        "living_room": [
-            "light.lutron_leap_dimmer_floor_lamp",
-            "light.philips_hue_light_os_3_3_0_floor_lamp",
-            "light.lutron_leap_dimmer_table_lamp",
-            "light.philips_hue_light_os_3_3_0_wall_wash",
-        ],
-        "dining": [
-            "light.philips_hue_light_os_3_3_0_chandelier",
-            "light.adaptive_phase_dimmer_entry",
-        ],
-    }
-    
-    # Get explicit list for this room, or fall back to pattern matching
-    explicit_lights = room_lights_map.get(room_name, [])
-    if explicit_lights:
-        patterns = None  # Use explicit list
-    else:
-        patterns = [room_name.replace("_", "")]
-    
-    try:
-        result = subprocess.run([
-            "curl", "-s",
-            f"{HA_URL}/api/states",
-            "-H", f"Authorization: Bearer {HA_TOKEN}"
-        ], capture_output=True, text=True, timeout=30)
-        
-        states = json.loads(result.stdout)
-        lights_on = []
-        
-        for entity in states:
-            eid = entity.get("entity_id", "")
-            state = entity.get("state", "")
-            
-            if eid.startswith("light.") and state == "on":
-                # Check explicit list first
-                if explicit_lights:
-                    if eid in explicit_lights:
-                        lights_on.append(eid)
-                # Fall back to pattern matching
-                elif patterns:
-                    eid_lower = eid.lower()
-                    for pattern in patterns:
-                        if pattern.lower() in eid_lower:
-                            lights_on.append(eid)
-                            break
-        
-        return lights_on
-    except Exception as e:
-        print(f"Error getting room lights: {e}", file=sys.stderr)
-        return []
-
-
-def turn_off_lights(entity_ids):
-    """Turn off specified lights via HA."""
-    if not HA_TOKEN or not entity_ids:
-        return {"success": False, "reason": "no token or no lights"}
-    
-    results = []
-    for eid in entity_ids:
-        try:
-            result = subprocess.run([
-                "curl", "-s", "-X", "POST",
-                f"{HA_URL}/api/services/light/turn_off",
-                "-H", f"Authorization: Bearer {HA_TOKEN}",
-                "-H", "Content-Type: application/json",
-                "-d", json.dumps({"entity_id": eid})
-            ], capture_output=True, text=True, timeout=10)
-            results.append({"entity_id": eid, "success": True})
-        except Exception as e:
-            results.append({"entity_id": eid, "success": False, "error": str(e)})
-    
-    return {"success": all(r["success"] for r in results), "results": results}
-
-
-def verify_room_empty(room_name):
-    """
-    Take a snapshot of a room for visual verification of emptiness.
-    Used to double-check motion sensor before suggesting lights-off.
-    
-    Returns:
-        dict with snapshot_path (for vision analysis) and sensor_state
-    """
-    # Get current sensor state
-    person_detected = get_motion_state(room_name)
-    
-    # Take a snapshot (respects cooldown - limits vision API calls)
-    snapshot_path = get_camera_snapshot(room_name, manual=False)
-    
-    # Get lights that would be affected
-    lights_on = get_room_lights(room_name)
-    
-    return {
-        "room": room_name,
-        "snapshot_path": snapshot_path,
-        "sensor_says_empty": person_detected == False,
-        "lights_on": lights_on,
-        "verification_prompt": f"Is this room actually empty? Check if there are any people visible. The motion sensor says {'no one is there' if person_detected == False else 'someone might be there'}."
-    }
-
-
-def handle_empty_room(room_name, dry_run=False, skip_verify=False):
-    """
-    Handle a room that just became empty.
-    If autoActions enabled, turn off lights.
-    Returns action taken or suggested.
-    
-    Args:
-        skip_verify: If True, skip verification (already verified by agent)
-    """
-    config = get_config()
-    auto_actions = config.get("autoActions", {})
-    
-    # Get lights that are on in this room
-    lights_on = get_room_lights(room_name)
-    
-    if not lights_on:
-        return {
-            "room": room_name,
-            "action": "none",
-            "reason": "no lights on"
-        }
-    
-    if auto_actions.get("enabled") and not dry_run:
-        # Actually turn off the lights
-        result = turn_off_lights(lights_on)
-        return {
-            "room": room_name,
-            "action": "turned_off_lights",
-            "lights": lights_on,
-            "success": result["success"],
-            "announce": auto_actions.get("announceActions", True)
-        }
-    else:
-        # Just suggest
-        return {
-            "room": room_name,
-            "action": "suggest",
-            "suggestion": f"Lights are on in empty {room_name.replace('_', ' ')}: {', '.join(lights_on)}",
-            "lights": lights_on
-        }
-
-
-def handle_occupied_room(room_name):
-    """
-    Handle a room that just became occupied.
-    Check context and return potential suggestions.
-    """
-    config = get_config()
-    hour = datetime.now().hour
-    
-    # Get current state
-    lights_on = get_room_lights(room_name)
-    home_state = get_home_state()
-    
-    suggestions = []
-    
-    # Check if lights should be on
-    is_dark_time = hour < 7 or hour >= 18  # Before 7am or after 6pm
-    if is_dark_time and not lights_on:
-        suggestions.append({
-            "type": "lighting",
-            "message": f"It's dark - want me to turn on the {room_name.replace('_', ' ')} lights?"
-        })
-    
-    # Check if music is playing anywhere
-    music_playing = len(home_state.get("media_playing", [])) > 0
-    
-    # Morning routine suggestions
-    if 6 <= hour <= 9 and not music_playing:
-        suggestions.append({
-            "type": "music",
-            "message": "Good morning! Want some background music?"
-        })
-    
-    # Evening suggestions
-    if 17 <= hour <= 20 and not music_playing:
-        suggestions.append({
-            "type": "music", 
-            "message": "Evening wind-down. Some chill music?"
-        })
-    
-    return {
-        "room": room_name,
-        "hour": hour,
-        "timeOfDay": "morning" if 6 <= hour < 10 else "daytime" if 10 <= hour < 17 else "evening" if 17 <= hour < 22 else "night",
-        "lightsOn": lights_on,
-        "musicPlaying": music_playing,
-        "suggestions": suggestions,
-        "hasSuggestions": len(suggestions) > 0
-    }
-
-
-def setup_jarvis():
-    """
-    Self-register Jarvis hooks and cron job with Clawdbot.
-    - Hooks: patches ~/.clawdbot/clawdbot.json directly
-    - Cron: uses clawdbot cron CLI
-    """
-    results = {
-        "success": True,
-        "hooks": {"registered": False, "error": None},
-        "cron": {"registered": False, "error": None}
-    }
-    
-    # Load hooks definition
-    try:
-        with open(HOOKS_FILE) as f:
-            hooks_def = json.load(f)
-    except Exception as e:
-        return {"success": False, "error": f"Failed to load hooks.json: {e}"}
-    
-    # Get user config for channel/destination
-    config = get_config()
-    notify_channel = config.get("notifyChannel", "telegram")
-    
-    # Update hooks with channel from config
-    for mapping in hooks_def.get("hooks", {}).get("mappings", []):
-        mapping["channel"] = notify_channel
-    
-    # Patch hooks directly into clawdbot.json
-    clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
-    try:
-        with open(clawdbot_config_path) as f:
-            clawdbot_config = json.load(f)
-        
-        # Ensure hooks section exists
-        if "hooks" not in clawdbot_config:
-            clawdbot_config["hooks"] = {"enabled": True, "mappings": []}
-        
-        clawdbot_config["hooks"]["enabled"] = True
-        
-        # Get existing mappings
-        existing_mappings = clawdbot_config["hooks"].get("mappings", [])
-        existing_ids = {m.get("id") for m in existing_mappings}
-        
-        # Add/update our hooks
-        for new_mapping in hooks_def["hooks"]["mappings"]:
-            if new_mapping["id"] in existing_ids:
-                # Update existing
-                for i, m in enumerate(existing_mappings):
-                    if m.get("id") == new_mapping["id"]:
-                        existing_mappings[i] = new_mapping
-                        break
-            else:
-                # Add new
-                existing_mappings.append(new_mapping)
-        
-        clawdbot_config["hooks"]["mappings"] = existing_mappings
-        
-        # Write back
-        with open(clawdbot_config_path, 'w') as f:
-            json.dump(clawdbot_config, f, indent=2)
-        
-        results["hooks"]["registered"] = True
-        results["hooks"]["note"] = "Restart gateway to apply hooks"
-        
-    except FileNotFoundError:
-        results["hooks"]["error"] = f"Clawdbot config not found at {clawdbot_config_path}"
-        results["success"] = False
-    except Exception as e:
-        results["hooks"]["error"] = str(e)
-        results["success"] = False
-    
-    # Register cron job via clawdbot cron CLI
-    cron_def = hooks_def.get("cron")
-    if cron_def:
-        try:
-            # Check if cron already exists
-            result = subprocess.run(
-                ["clawdbot", "cron", "list", "--json"],
-                capture_output=True,
-                text=True,
-                timeout=10
+            # Initialize snapshot service
+            self.snapshot_service = SnapshotService(
+                ha_url=self.ha_service.ha_url,
+                ha_token=self.ha_service.ha_token,
+                snapshot_dir=SNAPSHOT_DIR,
+                state_manager=self.state_manager
             )
-            
-            existing_job = None
-            if result.returncode == 0:
-                try:
-                    data = json.loads(result.stdout)
-                    for job in data.get("jobs", []):
-                        if job.get("name") == cron_def["name"]:
-                            existing_job = job
-                            break
-                except:
-                    pass
-            
-            # Build CLI args
-            cron_expr = cron_def["schedule"].get("expr", "*/5 * * * *")
-            payload_kind = cron_def["payload"].get("kind", "systemEvent")
 
-            if existing_job:
-                # Remove and re-add (simpler than edit)
-                subprocess.run(
-                    ["clawdbot", "cron", "rm", existing_job["id"]],
-                    capture_output=True,
-                    timeout=10
-                )
+            # Initialize context service (Phase 2)
+            self.context_service = ContextService(
+                state_manager=self.state_manager
+            )
 
-            # Build command based on payload type
-            cmd = [
-                "clawdbot", "cron", "add",
-                "--name", cron_def["name"],
-                "--cron", cron_expr,
-            ]
+            # Initialize occupancy service
+            self.occupancy_service = OccupancyService(
+                config=self.config,
+                state_manager=self.state_manager,
+                ha_service=self.ha_service,
+                context_service=self.context_service
+            )
 
-            # Add agent if specified
-            if "agentId" in cron_def:
-                cmd.extend(["--agent", cron_def["agentId"]])
+            # Initialize handlers
+            self.empty_room_handler = EmptyRoomHandler(
+                config=self.config,
+                ha_service=self.ha_service,
+                snapshot_service=self.snapshot_service
+            )
 
-            # Add delivery options if specified
-            if cron_def.get("deliver"):
-                cmd.append("--deliver")
-            if "channel" in cron_def:
-                cmd.extend(["--channel", cron_def["channel"]])
+            self.occupied_room_handler = OccupiedRoomHandler(
+                config=self.config,
+                ha_service=self.ha_service,
+                context_service=self.context_service
+            )
 
-            # Add payload
-            if payload_kind == "agentTurn":
-                cmd.extend(["--message", cron_def["payload"].get("message", "")])
-            else:  # systemEvent
-                wake_mode = cron_def.get("wakeMode", "now")
-                cmd.extend(["--wake", wake_mode])
-                cmd.extend(["--system-event", cron_def["payload"].get("text", "")])
+            logger.info("jarvis_cli_initialized")
 
-            cmd.append("--json")
-
-            # Add job
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                results["cron"]["registered"] = True
-                results["cron"]["action"] = "updated" if existing_job else "created"
-            else:
-                results["cron"]["error"] = result.stderr or result.stdout or "Failed"
-                results["success"] = False
-                
-        except FileNotFoundError:
-            results["cron"]["error"] = "clawdbot CLI not found - is Clawdbot installed?"
-            results["success"] = False
         except Exception as e:
-            results["cron"]["error"] = str(e)
-            results["success"] = False
-    
-    return results
-
-
-def poll_occupancy():
-    """
-    Poll all rooms for occupancy changes.
-    Returns transitions (room became empty, room became occupied).
-    """
-    config = get_config()
-    state = get_state()
-    
-    if "rooms" not in state:
-        state["rooms"] = {}
-    
-    transitions = []
-    current_occupancy = {}
-    
-    for room in config.get("cameras", {}):
-        if room not in state["rooms"]:
-            state["rooms"][room] = {}
-        
-        # Get current person detection state
-        person_detected = get_motion_state(room)  # Uses person detection sensor
-        current_occupancy[room] = person_detected
-        
-        # Get last known state
-        last_occupancy = state["rooms"][room].get("lastOccupancy")
-        
-        # Detect transitions
-        if last_occupancy is not None and person_detected is not None:
-            if last_occupancy and not person_detected:
-                # Room became empty
-                transitions.append({
-                    "room": room,
-                    "transition": "emptied",
-                    "previous": "occupied",
-                    "current": "empty",
-                    "timestamp": datetime.now().isoformat()
-                })
-                state["rooms"][room]["occupancyChangedAt"] = datetime.now().isoformat()
-            elif not last_occupancy and person_detected:
-                # Person arrived
-                transitions.append({
-                    "room": room,
-                    "transition": "occupied",
-                    "previous": "empty",
-                    "current": "occupied",
-                    "timestamp": datetime.now().isoformat()
-                })
-                state["rooms"][room]["occupancyChangedAt"] = datetime.now().isoformat()
-        
-        # Update last known state
-        if person_detected is not None:
-            state["rooms"][room]["lastOccupancy"] = person_detected
-    
-    state["lastPoll"] = datetime.now().isoformat()
-    save_state(state)
-    
-    return {
-        "polled": True,
-        "timestamp": datetime.now().isoformat(),
-        "currentOccupancy": current_occupancy,
-        "transitions": transitions,
-        "hasTransitions": len(transitions) > 0
-    }
-
-
-def main():
-    """CLI interface."""
-    if len(sys.argv) < 2:
-        print("Usage: jarvis.py <command> [args]")
-        print("Commands: status, enable, disable, snapshot <room>, check, motion <room>")
-        sys.exit(1)
-    
-    cmd = sys.argv[1]
-    
-    if cmd == "status":
-        print(json.dumps(get_status(), indent=2, default=str))
-    
-    elif cmd == "enable":
-        config = set_enabled(True)
-        print(json.dumps({"enabled": True, "message": "Jarvis mode enabled"}))
-    
-    elif cmd == "disable":
-        config = set_enabled(False)
-        print(json.dumps({"enabled": False, "message": "Jarvis mode disabled"}))
-    
-    elif cmd == "set":
-        # Set a config value: jarvis.py set <key> <value>
-        if len(sys.argv) < 4:
-            print("Usage: jarvis.py set <key> <value>", file=sys.stderr)
-            print("Keys: motionAware, instantAlerts, checkIntervalMinutes, cooldownMinutes, motionCooldownMinutes")
+            logger.error("jarvis_cli_init_failed", error=str(e), exc_info=True)
+            print(f"Error initializing Jarvis: {e}", file=sys.stderr)
             sys.exit(1)
-        key = sys.argv[2]
-        value = sys.argv[3]
-        
-        config = get_config()
-        # Parse value type
-        if value.lower() in ("true", "false"):
-            value = value.lower() == "true"
-        elif value.isdigit():
-            value = int(value)
-        
-        config[key] = value
-        save_json(CONFIG_FILE, config)
-        print(json.dumps({"set": key, "value": value}))
-    
-    elif cmd == "snapshot":
-        if len(sys.argv) < 3:
+
+    def _generate_prediction_insight(self, predictions: list, room: str, occupied: bool) -> str:
+        """
+        Generate a natural language insight from behavioral predictions.
+
+        This helps Claude reason naturally about what to suggest.
+        """
+        if not predictions:
+            return None
+
+        # Find highest confidence prediction
+        top = max(predictions, key=lambda p: p.get("confidence", 0))
+
+        if top["confidence"] >= 0.7:
+            return f"Strong pattern: {top['what']} ({top['confidence']:.0%} confidence). {top['reason']}."
+        elif top["confidence"] >= 0.5:
+            return f"Likely pattern: {top['what']} ({top['confidence']:.0%} confidence). {top['reason']}."
+        elif top["confidence"] >= 0.3:
+            return f"Possible pattern: {top['what']} ({top['confidence']:.0%} confidence). Consider mentioning if relevant."
+        else:
+            return None
+
+    def _get_external_context(self, home_state: dict) -> dict:
+        """
+        Query external plugins for compound context.
+
+        Returns insights from calendar, weather, etc. that can inform suggestions.
+        """
+        try:
+            from services.external_context import ExternalContext
+            ext = ExternalContext()
+
+            # Get raw external context
+            external = ext.get_all_context()
+
+            # Generate compound insights
+            insights = ext.get_compound_insights({
+                "occupied_rooms": [r for r, s in self.state_manager.read_state().get("rooms", {}).items()
+                                   if s.get("occupancy", {}).get("current")],
+                "lights_on": home_state.get("lights_on", [])
+            })
+
+            return {
+                "sources": external,
+                "compound_insights": insights if insights else None
+            }
+        except Exception:
+            return None
+
+    def run(self, args):
+        """
+        Run CLI command.
+
+        Args:
+            args: sys.argv (including script name)
+        """
+        if len(args) < 2:
+            self.print_usage()
+            sys.exit(1)
+
+        cmd = args[1]
+
+        try:
+            # Route command
+            if cmd == "status":
+                self.cmd_status()
+            elif cmd == "enable":
+                self.cmd_enable()
+            elif cmd == "disable":
+                self.cmd_disable()
+            elif cmd == "snapshot":
+                self.cmd_snapshot(args)
+            elif cmd == "context":
+                self.cmd_context(args)
+            elif cmd == "poll":
+                self.cmd_poll()
+            elif cmd == "verify-empty":
+                self.cmd_verify_empty(args)
+            elif cmd == "handle-empty":
+                self.cmd_handle_empty(args)
+            elif cmd == "handle-occupied":
+                self.cmd_handle_occupied(args)
+            elif cmd == "occupancy":
+                self.cmd_occupancy()
+            elif cmd == "home-state":
+                self.cmd_home_state()
+            elif cmd == "room-lights":
+                self.cmd_room_lights(args)
+            elif cmd == "record":
+                self.cmd_record(args)
+            elif cmd == "cleanup":
+                self.cmd_cleanup()
+            elif cmd == "setup":
+                self.cmd_setup()
+            elif cmd == "feedback":
+                self.cmd_feedback(args)
+            elif cmd == "decisions":
+                self.cmd_decisions(args)
+            elif cmd == "patterns":
+                self.cmd_patterns(args)
+            elif cmd == "events":
+                self.cmd_events(args)
+            else:
+                print(f"Unknown command: {cmd}", file=sys.stderr)
+                self.print_usage()
+                sys.exit(1)
+
+        except Exception as e:
+            logger.error("command_failed", command=cmd, error=str(e), exc_info=True)
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+
+    def print_usage(self):
+        """Print usage help."""
+        print("Usage: jarvis.py <command> [args]")
+        print("\nCommands:")
+        print("  status                      Get full Jarvis status")
+        print("  enable                      Enable Jarvis mode")
+        print("  disable                     Disable Jarvis mode")
+        print("  snapshot <room> [--manual]  Capture camera snapshot")
+        print("  context <room> [--manual]   Get full room context")
+        print("  poll                        Poll occupancy and detect transitions")
+        print("  verify-empty <room>         Get snapshot for visual verification before lights-off")
+        print("  handle-empty <room>         Handle empty room event")
+        print("  handle-occupied <room>      Handle occupied room event")
+        print("  occupancy                   Get current occupancy for all rooms")
+        print("  home-state                  Get current home state")
+        print("  room-lights <room>          Get lights on in room")
+        print("  record <room> <json|activity>  Record observation")
+        print("  feedback <suggestion_json> <accepted|rejected>  Record suggestion feedback")
+        print("  decisions [--limit N] [--room ROOM]  View decision audit trail")
+        print("  patterns [--analyze]        View learned behavior patterns")
+        print("  events [--hours N]          View collected HA events")
+        print("  cleanup                     Delete old snapshots")
+        print("  setup                       Self-register with Clawdbot")
+
+    def cmd_status(self):
+        """Get full Jarvis status."""
+        state = self.state_manager.read_state()
+
+        # Build room states
+        room_states = {}
+        for room_name in self.config.get_enabled_cameras().keys():
+            room_state = self.state_manager.get_room_state(room_name)
+            check_result = self.occupancy_service.should_check_room(room_name)
+
+            if room_state:
+                occupancy = room_state.get("occupancy", {})
+                room_states[room_name] = {
+                    "occupancy": occupancy.get("current"),
+                    "changed_at": occupancy.get("changed_at"),
+                    "should_check": check_result["should_check"],
+                    "reason": check_result["reason"],
+                    "motion_detected": check_result["motion_state"]
+                }
+
+        status = {
+            "enabled": self.config.enabled,
+            "active_hours": self.config.active_hours.is_active(datetime.now().hour),
+            "active_hours_config": {
+                "start": self.config.active_hours.start,
+                "end": self.config.active_hours.end
+            },
+            "check_interval": self.config.check_interval_minutes,
+            "cooldown": self.config.cooldown_minutes,
+            "motion_cooldown": self.config.motion_cooldown_minutes,
+            "motion_aware": self.config.motion_aware,
+            "instant_alerts": self.config.instant_alerts,
+            "quiet_mode": self.config.quiet_mode,
+            "auto_actions": {
+                "enabled": self.config.auto_actions.enabled,
+                "announce": self.config.auto_actions.announce_actions
+            },
+            "last_poll": state.get("last_poll"),
+            "cameras": list(self.config.get_enabled_cameras().keys()),
+            "room_states": room_states
+        }
+
+        print(json.dumps(status, indent=2))
+
+    def cmd_enable(self):
+        """Enable Jarvis mode."""
+        self.config.enabled = True
+        self.config.save(CONFIG_FILE)
+        logger.info("jarvis_enabled")
+        print(json.dumps({"enabled": True, "message": "Jarvis mode enabled"}))
+
+    def cmd_disable(self):
+        """Disable Jarvis mode."""
+        self.config.enabled = False
+        self.config.save(CONFIG_FILE)
+        logger.info("jarvis_disabled")
+        print(json.dumps({"enabled": False, "message": "Jarvis mode disabled"}))
+
+    def cmd_snapshot(self, args):
+        """Capture camera snapshot."""
+        if len(args) < 3:
             print("Usage: jarvis.py snapshot <room> [--manual]", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        manual = "--manual" in sys.argv
-        path = get_camera_snapshot(room, manual=manual)
+
+        room = args[2]
+        manual = "--manual" in args
+
+        camera_config = self.config.cameras.get(room)
+        if not camera_config:
+            print(json.dumps({"error": f"Unknown room: {room}"}), file=sys.stderr)
+            sys.exit(1)
+
+        path = self.snapshot_service.get_snapshot(
+            room_name=room,
+            camera_entity_id=camera_config.entity_id,
+            cooldown_minutes=self.config.cooldown_minutes,
+            manual=manual
+        )
+
         if path:
             print(json.dumps({"room": room, "snapshot": path, "manual": manual}))
         else:
             print(json.dumps({"room": room, "error": "Failed or blocked by cooldown", "manual": manual}))
             sys.exit(1)
-    
-    elif cmd == "motion":
-        if len(sys.argv) < 3:
-            print("Usage: jarvis.py motion <room>", file=sys.stderr)
-            sys.exit(1)
-        room = sys.argv[2]
-        motion = get_motion_state(room)
-        print(json.dumps({"room": room, "motion": motion}))
-    
-    elif cmd == "home-state":
-        print(json.dumps(get_home_state(), indent=2))
-    
-    elif cmd == "context":
-        # Get full context for a room: snapshot + home state + config + person detection
-        if len(sys.argv) < 3:
+
+    def cmd_context(self, args):
+        """Get full room context."""
+        if len(args) < 3:
             print("Usage: jarvis.py context <room> [--manual]", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        manual = "--manual" in sys.argv
-        snapshot = get_camera_snapshot(room, manual=manual)
-        home_state = get_home_state()
-        config = get_config()
-        hour = datetime.now().hour
-        
-        # Check person detection for this room
-        person_sensor = f"binary_sensor.{room}_person_detected"
-        person_detected = None
+
+        room = args[2]
+        manual = "--manual" in args
+
+        camera_config = self.config.cameras.get(room)
+        if not camera_config:
+            print(json.dumps({"error": f"Unknown room: {room}"}), file=sys.stderr)
+            sys.exit(1)
+
+        # Get current timestamp
+        now = datetime.now()
+
+        # Get snapshot
+        snapshot = self.snapshot_service.get_snapshot(
+            room_name=room,
+            camera_entity_id=camera_config.entity_id,
+            cooldown_minutes=self.config.cooldown_minutes,
+            manual=manual
+        )
+
+        # Get home state
+        home_state = self.ha_service.get_home_state()
+
+        # Get motion state
+        person_detected = self.ha_service.is_motion_detected(camera_config.motion_sensor) if camera_config.motion_sensor else None
+
+        # Update state with current occupancy (for accurate UI monitoring)
+        if person_detected is not None:
+            self.state_manager.update_occupancy(room, person_detected)
+
+        # Update last check timestamp for this room
+        self.state_manager.update_room(room, {
+            "last_check": now.isoformat()
+        })
+
+        # Get room lights
+        from handlers.empty_room_handler import ROOM_LIGHTS_MAP
+        room_lights = self.ha_service.get_room_lights(room, ROOM_LIGHTS_MAP)
+
+        # Get temporal context
+        hour = now.hour
+        time_of_day = (
+            "morning" if 6 <= hour < 10 else
+            "daytime" if 10 <= hour < 17 else
+            "evening" if 17 <= hour < 22 else
+            "night"
+        )
+
+        # Get room state and observations
+        room_state = self.state_manager.get_room_state(room)
+        recent_observations = self.state_manager.get_recent_observations(room, hours=2)
+        occupancy_duration = self.state_manager.get_occupancy_duration(room)
+
+        # Build room observations for life context inference
+        import life_context
+        room_observations = {
+            room: {
+                "person_detected": person_detected,
+                "activity_duration": occupancy_duration or 0
+            }
+        }
+
+        # Infer life context
+        context_inference = life_context.infer_context(room_observations, home_state)
+
+        # Get suggestions based on inferred context
+        capabilities = life_context.get_capabilities()
+        suggestions = life_context.get_suggestions(context_inference, capabilities)
+
+        # Get learned patterns (file-based legacy)
+        patterns = life_context.get_patterns()
+        learned_patterns = patterns.get("learned_patterns", {}).get("patterns", {})
+
+        # Get behavioral predictions from PatternAnalyzer (data-driven)
+        behavioral_predictions = []
         try:
-            result = subprocess.run([
-                "curl", "-s",
-                f"{HA_URL}/api/states/{person_sensor}",
-                "-H", f"Authorization: Bearer {HA_TOKEN}"
-            ], capture_output=True, text=True, timeout=10)
-            data = json.loads(result.stdout)
-            person_detected = data.get("state") == "on"
-        except:
-            pass
-        
-        # Get room-specific lights
-        room_lights = [l for l in home_state.get("lights_on", []) if room.replace("_", "") in l.replace("_", "").lower() or room.split("_")[0] in l.lower()]
-        
-        print(json.dumps({
+            from services.pattern_analyzer import PatternAnalyzer
+            analyzer = PatternAnalyzer()
+
+            current_context = {
+                "hour": hour,
+                "is_weekend": now.weekday() >= 5,
+                "recent_actions": []  # Could populate from recent observations
+            }
+
+            predictions = analyzer.get_predictions(current_context)
+            for pred in predictions:
+                behavioral_predictions.append({
+                    "what": f"{pred['entity_id']} → {pred['predicted_state']}",
+                    "confidence": pred["confidence"],
+                    "reason": pred["reason"],
+                    "source": pred.get("source", "learned")
+                })
+        except Exception:
+            pass  # PatternAnalyzer not ready or no data yet
+
+        # Get recent decision log
+        recent_decisions = self.state_manager.get_decision_log(limit=5)
+        last_decision = recent_decisions[0] if recent_decisions else None
+
+        # Determine silence logic
+        should_be_silent, silence_reason = life_context.should_stay_silent(
+            context_inference,
+            suggestions,
+            recent_decisions
+        )
+
+        # Build activity timeline from recent observations
+        activity_timeline = []
+        for obs in recent_observations:
+            activity_timeline.append({
+                "timestamp": obs.get("timestamp", ""),
+                "activity": obs.get("activity", obs.get("summary", "unknown"))
+            })
+
+        # Extract context-specific patterns
+        context_patterns = {}
+        ctx_name = context_inference.get("context", "unknown")
+        for pattern_key, pattern_data in learned_patterns.items():
+            if pattern_key.startswith(f"{ctx_name}+"):
+                context_patterns[pattern_key] = pattern_data
+
+        # Build enriched context payload (Phase 3.1)
+        context = {
             "room": room,
             "snapshot": snapshot,
-            "time": datetime.now().strftime("%I:%M %p"),
-            "hour": hour,
-            "timeOfDay": "morning" if 6 <= hour < 10 else "daytime" if 10 <= hour < 17 else "evening" if 17 <= hour < 22 else "night",
-            "personDetected": person_detected,
-            "roomEmpty": person_detected == False,
-            "quietMode": config.get("quietMode", True),
-            "autoActions": config.get("autoActions", {}),
-            "homeState": {
-                "lightsOn": len(home_state.get("lights_on", [])),
-                "lightsOff": len(home_state.get("lights_off", [])),
-                "roomLightsOn": room_lights,
-                "musicPlaying": len(home_state.get("media_playing", [])) > 0,
-                "mediaPlayers": home_state.get("media_playing", [])
+
+            "temporal": {
+                "time": now.strftime("%I:%M %p"),
+                "time_of_day": time_of_day,
+                "day_of_week": now.strftime("%A"),
+                "hour": hour,
+                "is_weekend": now.weekday() >= 5
+            },
+
+            "inferred_context": {
+                "context": context_inference.get("context", "unknown"),
+                "confidence": context_inference.get("confidence", 0),
+                "signals": context_inference.get("signals", []),
+                "previous_context": context_inference.get("previous_context"),
+                "duration_minutes": occupancy_duration or 0,
+                "typical_duration_minutes": None
+            },
+
+            "room_state": {
+                "occupancy": "occupied" if person_detected else "empty",
+                "occupancy_duration_minutes": occupancy_duration or 0,
+                "lights_on": room_lights,
+                "recent_activity": activity_timeline[:5]
+            },
+
+            "home_state": {
+                "lights_on": home_state.get("lights_on", []),
+                "lights_off": home_state.get("lights_off", []),
+                "music_playing": len(home_state.get("media_playing", [])) > 0,
+                "media_players": home_state.get("media_playing", [])
+            },
+
+            "learned_patterns": {
+                "patterns": learned_patterns,
+                "context_specific": context_patterns
+            },
+
+            "behavioral_predictions": {
+                "summary": f"Based on {len(behavioral_predictions)} learned patterns for this time/context",
+                "predictions": behavioral_predictions[:5],  # Top 5 most confident
+                "insight": self._generate_prediction_insight(behavioral_predictions, room, person_detected)
+            } if behavioral_predictions else None,
+
+            "external_context": self._get_external_context(home_state),
+
+            "suggestions": suggestions,
+
+            "decision_context": {
+                "should_speak": not should_be_silent,
+                "silence_reason": silence_reason if should_be_silent else None,
+                "last_decision_time": last_decision.get("timestamp") if last_decision else None,
+                "last_decision": last_decision.get("decision") if last_decision else None,
+                "quiet_mode": self.config.quiet_mode,
+                "auto_actions_enabled": self.config.auto_actions.enabled
             }
-        }, indent=2))
-    
-    elif cmd == "check":
-        # Output rooms that should be checked
-        config = get_config()
-        trigger = sys.argv[2] if len(sys.argv) > 2 else "scheduled"
-        rooms_info = []
-        rooms_to_check = []
-        for room in config.get("cameras", {}):
-            result = should_check_room(room, trigger)
-            rooms_info.append({
-                "room": room,
-                **result
-            })
-            if result["should_check"]:
-                rooms_to_check.append(room)
-        print(json.dumps({
-            "enabled": is_enabled(),
-            "activeHours": is_active_hours(),
-            "trigger": trigger,
-            "roomsToCheck": rooms_to_check,
-            "roomDetails": rooms_info
-        }, indent=2))
-    
-    elif cmd == "triggers":
-        # Get and clear pending triggers
-        triggers_file = SKILL_DIR / "triggers.json"
-        try:
-            with open(triggers_file, "r") as f:
-                data = json.load(f)
-        except:
-            data = {"pending": []}
-        
-        pending = data.get("pending", [])
-        
-        # Clear triggers
-        if len(sys.argv) > 2 and sys.argv[2] == "--clear":
-            data["pending"] = []
-            with open(triggers_file, "w") as f:
-                json.dump(data, f, indent=2)
-        
-        print(json.dumps({"pending": pending}, indent=2))
-    
-    elif cmd == "motion-trigger":
-        # Called by HA automation when motion detected
-        if len(sys.argv) < 3:
-            print("Usage: jarvis.py motion-trigger <room>", file=sys.stderr)
-            sys.exit(1)
-        room = sys.argv[2]
-        config = get_config()
-        
-        if not is_enabled():
-            print(json.dumps({"triggered": False, "reason": "jarvis disabled"}))
-            sys.exit(0)
-        
-        if not config.get("instantAlerts", False):
-            print(json.dumps({"triggered": False, "reason": "instant alerts disabled"}))
-            sys.exit(0)
-        
-        if not is_active_hours():
-            print(json.dumps({"triggered": False, "reason": "outside active hours"}))
-            sys.exit(0)
-        
-        result = should_check_room(room, trigger="motion")
-        print(json.dumps({
-            "triggered": result["should_check"],
+        }
+
+        # Log this decision to the audit trail (Phase 3.4)
+        trigger = "manual" if manual else "auto_check"
+        decision_entry = {
+            "timestamp": now.isoformat(),
             "room": room,
-            "reason": result["reason"]
-        }))
-    
-    elif cmd == "record":
-        if len(sys.argv) < 4:
-            print("Usage: jarvis.py record <room> <observation_json>", file=sys.stderr)
-            print("   or: jarvis.py record <room> <activity> <summary>", file=sys.stderr)
-            sys.exit(1)
-        room = sys.argv[2]
-        # Try JSON first, fall back to activity/summary args
-        try:
-            observation = json.loads(sys.argv[3])
-        except (json.JSONDecodeError, ValueError):
-            # Treat as activity string, optional summary
-            activity = sys.argv[3]
-            summary = sys.argv[4] if len(sys.argv) > 4 else activity
-            observation = {"activity": activity, "summary": summary}
-        record_observation(room, observation)
-        print(json.dumps({"recorded": True, "room": room}))
-    
-    elif cmd == "cleanup":
-        # Delete all snapshots (call after analysis)
-        deleted = 0
-        for f in SNAPSHOT_DIR.glob("*.jpg"):
-            try:
-                f.unlink()
-                deleted += 1
-            except:
-                pass
-        print(json.dumps({"deleted": deleted}))
-    
-    elif cmd == "poll":
-        # Poll occupancy states and detect transitions
-        if not is_enabled():
+            "trigger": trigger,
+            "context_inferred": context_inference.get("context", "unknown"),
+            "confidence": context_inference.get("confidence", 0),
+            "suggestions_generated": len(suggestions),
+            "decision": "should_speak" if not should_be_silent else "silent",
+            "reason": silence_reason if should_be_silent else "Context suggests speaking",
+            "suggestions_offered": [s.get("action") for s in suggestions] if suggestions else []
+        }
+
+        self.state_manager.log_decision(decision_entry)
+
+        # Record observation to replace pending "analyzing..." state
+        # This gives the UI immediate feedback about what was detected
+        occupancy_str = "occupied" if person_detected else "empty"
+        inferred_ctx = context_inference.get("context", "unknown")
+        observation = {
+            "activity": f"{inferred_ctx} - {occupancy_str}",
+            "summary": f"Room {occupancy_str}, context: {inferred_ctx} (confidence: {context_inference.get('confidence', 0):.0%})",
+            "pending": False  # Explicitly mark as not pending
+        }
+        self.state_manager.record_observation(room, observation)
+
+        logger.info(
+            "context_decision",
+            room=room,
+            context=context_inference.get("context"),
+            confidence=context_inference.get("confidence"),
+            decision=decision_entry["decision"],
+            suggestions_count=len(suggestions),
+            trigger=trigger
+        )
+
+        print(json.dumps(context, indent=2))
+
+    def cmd_poll(self):
+        """Poll occupancy and detect transitions."""
+        if not self.config.enabled:
             print(json.dumps({"polled": False, "reason": "jarvis disabled"}))
             sys.exit(0)
-        
-        if not is_active_hours():
+
+        if not self.config.active_hours.is_active(datetime.now().hour):
             print(json.dumps({"polled": False, "reason": "outside active hours"}))
             sys.exit(0)
+
+        result = self.occupancy_service.poll_occupancy()
+        print(json.dumps(result, indent=2))
+
+    def cmd_verify_empty(self, args):
+        """
+        Get snapshot for visual verification before suggesting lights-off.
         
-        result = poll_occupancy()
-        print(json.dumps(result, indent=2))
-    
-    elif cmd == "occupancy":
-        # Get current occupancy for all rooms (no state change)
-        config = get_config()
-        occupancy = {}
-        for room in config.get("cameras", {}):
-            occupancy[room] = get_motion_state(room)
-        print(json.dumps({"occupancy": occupancy}))
-    
-    elif cmd == "setup":
-        # Self-register hooks and cron with Clawdbot
-        result = setup_jarvis()
-        print(json.dumps(result, indent=2))
-        if not result.get("success"):
-            sys.exit(1)
-    
-    elif cmd == "verify-empty":
-        # Take snapshot for visual verification before suggesting lights-off
-        if len(sys.argv) < 3:
+        Used to double-check motion sensor before acting on "empty" state.
+        Respects cooldown to limit vision API costs.
+        
+        Returns:
+            JSON with snapshot_path (for vision analysis), sensor state, and lights info.
+            If snapshot_path is null, cooldown is active - don't suggest lights off.
+        """
+        if len(args) < 3:
             print("Usage: jarvis.py verify-empty <room>", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        result = verify_room_empty(room)
+
+        room = args[2]
+        camera_config = self.config.cameras.get(room)
+        
+        if not camera_config:
+            print(json.dumps({"error": f"Room '{room}' not found in config"}))
+            sys.exit(1)
+
+        # Get current sensor state
+        person_detected = None
+        if camera_config.motion_sensor:
+            person_detected = self.ha_service.is_motion_detected(camera_config.motion_sensor)
+
+        # Update state with current occupancy
+        if person_detected is not None:
+            self.state_manager.update_occupancy(room, person_detected)
+
+        # Take snapshot (respects cooldown - limits vision API calls)
+        snapshot_path = self.snapshot_service.get_snapshot(
+            room_name=room,
+            camera_entity_id=camera_config.entity_id,
+            cooldown_minutes=self.config.cooldown_minutes,
+            manual=False  # Respect cooldown
+        )
+
+        # Update last check timestamp
+        self.state_manager.update_room(room, {
+            "last_check": datetime.now().isoformat()
+        })
+
+        # Get lights that would be affected
+        from handlers.empty_room_handler import ROOM_LIGHTS_MAP
+        lights_on = self.ha_service.get_room_lights(room, ROOM_LIGHTS_MAP)
+
+        result = {
+            "room": room,
+            "snapshot_path": snapshot_path,
+            "sensor_says_empty": person_detected == False,
+            "lights_on": lights_on,
+            "verification_prompt": f"Is this room actually empty? Check if there are any people visible. The motion sensor says {'no one is there' if person_detected == False else 'someone might be there' if person_detected else 'unknown'}."
+        }
+        
         print(json.dumps(result, indent=2))
-    
-    elif cmd == "handle-empty":
-        # Handle a room that became empty (call after verify-empty confirms)
-        if len(sys.argv) < 3:
+
+    def cmd_handle_empty(self, args):
+        """Handle empty room event."""
+        if len(args) < 3:
             print("Usage: jarvis.py handle-empty <room> [--dry-run] [--verified]", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        dry_run = "--dry-run" in sys.argv
-        skip_verify = "--verified" in sys.argv
-        result = handle_empty_room(room, dry_run=dry_run, skip_verify=skip_verify)
+
+        room = args[2]
+        dry_run = "--dry-run" in args
+        skip_verify = "--verified" in args
+
+        result = self.empty_room_handler.handle(room, dry_run=dry_run, skip_verify=skip_verify)
         print(json.dumps(result, indent=2))
-    
-    elif cmd == "handle-occupied":
-        # Handle a room that became occupied
-        if len(sys.argv) < 3:
+
+    def cmd_handle_occupied(self, args):
+        """Handle occupied room event."""
+        if len(args) < 3:
             print("Usage: jarvis.py handle-occupied <room>", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        result = handle_occupied_room(room)
+
+        room = args[2]
+        result = self.occupied_room_handler.handle(room)
         print(json.dumps(result, indent=2))
-    
-    elif cmd == "room-lights":
-        # Get lights that are on in a room
-        if len(sys.argv) < 3:
+
+    def cmd_occupancy(self):
+        """Get current occupancy for all rooms."""
+        occupancy = {}
+        for room_name, camera_config in self.config.get_enabled_cameras().items():
+            if camera_config.motion_sensor:
+                occupancy[room_name] = self.ha_service.is_motion_detected(camera_config.motion_sensor)
+
+        print(json.dumps({"occupancy": occupancy}))
+
+    def cmd_home_state(self):
+        """Get current home state."""
+        state = self.ha_service.get_home_state()
+        print(json.dumps(state, indent=2))
+
+    def cmd_room_lights(self, args):
+        """Get lights on in room."""
+        if len(args) < 3:
             print("Usage: jarvis.py room-lights <room>", file=sys.stderr)
             sys.exit(1)
-        room = sys.argv[2]
-        lights = get_room_lights(room)
+
+        room = args[2]
+        from handlers.empty_room_handler import ROOM_LIGHTS_MAP
+        lights = self.ha_service.get_room_lights(room, ROOM_LIGHTS_MAP)
         print(json.dumps({"room": room, "lights_on": lights}))
-    
-    else:
-        print(f"Unknown command: {cmd}", file=sys.stderr)
-        sys.exit(1)
+
+    def cmd_record(self, args):
+        """Record observation for a room."""
+        if len(args) < 4:
+            print("Usage: jarvis.py record <room> <observation_json>", file=sys.stderr)
+            print("   or: jarvis.py record <room> <activity> [summary]", file=sys.stderr)
+            sys.exit(1)
+
+        room = args[2]
+
+        # Try JSON first, fall back to activity/summary args
+        try:
+            observation = json.loads(args[3])
+        except (json.JSONDecodeError, ValueError):
+            activity = args[3]
+            summary = args[4] if len(args) > 4 else activity
+            observation = {"activity": activity, "summary": summary}
+
+        self.state_manager.record_observation(room, observation)
+        print(json.dumps({"recorded": True, "room": room}))
+
+    def cmd_feedback(self, args):
+        """
+        Record suggestion feedback for pattern learning.
+
+        Usage: jarvis.py feedback <suggestion_json> <accepted|rejected>
+
+        The agent can call this after making a suggestion to record whether
+        the user accepted or rejected it, which updates learned patterns.
+        """
+        if len(args) < 4:
+            print("Usage: jarvis.py feedback <suggestion_json> <accepted|rejected>", file=sys.stderr)
+            sys.exit(1)
+
+        # Parse suggestion JSON
+        try:
+            suggestion = json.loads(args[2])
+        except json.JSONDecodeError as e:
+            print(f"Invalid suggestion JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Parse acceptance
+        accepted_str = args[3].lower()
+        accepted = accepted_str in ["accepted", "yes", "true", "1"]
+
+        # Record the feedback
+        life_context.record_suggestion_response(suggestion, accepted)
+
+        logger.info(
+            "feedback_recorded",
+            suggestion_type=suggestion.get("type"),
+            action=suggestion.get("action"),
+            accepted=accepted
+        )
+
+        print(json.dumps({
+            "recorded": True,
+            "suggestion": suggestion.get("action"),
+            "accepted": accepted
+        }))
+
+    def cmd_decisions(self, args):
+        """
+        View recent decision audit trail.
+
+        Usage: jarvis.py decisions [--limit N] [--room ROOM]
+        """
+        limit = 20
+        room_filter = None
+
+        # Parse arguments
+        i = 2
+        while i < len(args):
+            if args[i] == "--limit" and i + 1 < len(args):
+                try:
+                    limit = int(args[i + 1])
+                    i += 2
+                except ValueError:
+                    print("Invalid limit value", file=sys.stderr)
+                    sys.exit(1)
+            elif args[i] == "--room" and i + 1 < len(args):
+                room_filter = args[i + 1]
+                i += 2
+            else:
+                i += 1
+
+        # Get decision log
+        decisions = self.state_manager.get_decision_log(limit=limit)
+
+        # Filter by room if specified
+        if room_filter:
+            decisions = [d for d in decisions if d.get("room") == room_filter]
+
+        print(json.dumps({
+            "count": len(decisions),
+            "decisions": decisions
+        }, indent=2))
+
+    def cmd_patterns(self, args):
+        """
+        View learned behavior patterns.
+
+        Usage: jarvis.py patterns [--analyze] [--predict]
+        """
+        try:
+            from services.pattern_analyzer import PatternAnalyzer
+            analyzer = PatternAnalyzer()
+
+            if "--analyze" in args:
+                # Run full analysis and save patterns
+                count = analyzer.save_patterns_to_db()
+                print(json.dumps({
+                    "analyzed": True,
+                    "patterns_saved": count
+                }, indent=2))
+            elif "--predict" in args:
+                # Get predictions for current time
+                predictions = analyzer.get_predictions({})
+                print(json.dumps({
+                    "predictions": predictions
+                }, indent=2))
+            else:
+                # Show pattern summary
+                summary = analyzer.get_summary()
+                time_patterns = analyzer.analyze_time_patterns()
+                sequence_patterns = analyzer.analyze_sequence_patterns()
+
+                print(json.dumps({
+                    "summary": summary,
+                    "time_patterns": time_patterns.get("time_patterns", [])[:10],
+                    "sequence_patterns": sequence_patterns.get("sequence_patterns", [])[:10]
+                }, indent=2))
+
+        except Exception as e:
+            print(json.dumps({
+                "error": str(e),
+                "hint": "Pattern analyzer requires event collection. Is the collector running?"
+            }, indent=2))
+
+    def cmd_events(self, args):
+        """
+        View collected HA events.
+
+        Usage: jarvis.py events [--hours N] [--entity FILTER]
+        """
+        try:
+            from services.event_collector import EventCollector
+            collector = EventCollector()
+
+            hours = 24
+            entity_filter = None
+
+            # Parse arguments
+            i = 2
+            while i < len(args):
+                if args[i] == "--hours" and i + 1 < len(args):
+                    try:
+                        hours = int(args[i + 1])
+                        i += 2
+                    except ValueError:
+                        i += 1
+                elif args[i] == "--entity" and i + 1 < len(args):
+                    entity_filter = args[i + 1]
+                    i += 2
+                else:
+                    i += 1
+
+            # Get stats first
+            stats = collector.get_stats()
+
+            # Get recent events
+            events = collector.get_recent_events(hours=hours, entity_filter=entity_filter)
+
+            print(json.dumps({
+                "stats": stats,
+                "events_in_window": len(events),
+                "recent_events": events[:50]
+            }, indent=2))
+
+        except Exception as e:
+            print(json.dumps({
+                "error": str(e),
+                "hint": "Event collector might not be running. Check launchctl list | grep jarvis-collector"
+            }, indent=2))
+
+    def cmd_cleanup(self):
+        """Delete old snapshots."""
+        self.snapshot_service.cleanup_old_snapshots(days=1)
+        print(json.dumps({"cleaned": True}))
+
+    def cmd_setup(self):
+        """Self-register with Clawdbot."""
+        # Load hooks definition
+        try:
+            with open(HOOKS_FILE) as f:
+                hooks_def = json.load(f)
+        except Exception as e:
+            print(json.dumps({"success": False, "error": f"Failed to load hooks.json: {e}"}))
+            sys.exit(1)
+
+        # Update hooks with channel from config
+        for mapping in hooks_def.get("hooks", {}).get("mappings", []):
+            mapping["channel"] = self.config.notify_channel
+
+        # Patch hooks into clawdbot.json
+        clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+
+        try:
+            with open(clawdbot_config_path) as f:
+                clawdbot_config = json.load(f)
+
+            # Ensure hooks section exists
+            if "hooks" not in clawdbot_config:
+                clawdbot_config["hooks"] = {"enabled": True, "mappings": []}
+
+            clawdbot_config["hooks"]["enabled"] = True
+
+            # Merge mappings (replace existing jarvis hooks)
+            existing_mappings = [m for m in clawdbot_config["hooks"].get("mappings", [])
+                               if not m.get("id", "").startswith("jarvis-")]
+
+            clawdbot_config["hooks"]["mappings"] = existing_mappings + hooks_def["hooks"]["mappings"]
+
+            # Write back
+            with open(clawdbot_config_path, "w") as f:
+                json.dump(clawdbot_config, f, indent=2)
+
+            logger.info("setup_hooks_registered")
+
+            print(json.dumps({
+                "success": True,
+                "hooks": {"registered": True},
+                "message": "Jarvis hooks registered. Restart Clawdbot gateway to apply."
+            }, indent=2))
+
+        except Exception as e:
+            logger.error("setup_failed", error=str(e), exc_info=True)
+            print(json.dumps({"success": False, "error": str(e)}))
+            sys.exit(1)
+
+
+# Module-level functions for jarvis_server.py compatibility
+def get_status():
+    """
+    Get full Jarvis status for UI/API.
+
+    Returns status dict compatible with jarvis_server.py and UI.
+    """
+    config = JarvisConfig.load(CONFIG_FILE)
+    state_manager = StateManager(STATE_FILE)
+    state = state_manager.read_state()
+
+    # Build room states with occupancy info
+    room_states = {}
+    all_observations = []
+
+    for room_name, camera_config in config.cameras.items():
+        if not camera_config.enabled:
+            continue
+
+        room_state = state_manager.get_room_state(room_name) or {}
+
+        # Extract occupancy data (schema v2 - canonical)
+        occupancy_data = room_state.get("occupancy", {})
+        last_occupancy = occupancy_data.get("current")
+        occupancy_changed_at = occupancy_data.get("changed_at")
+
+        # Fall back to legacy fields if canonical is None
+        if last_occupancy is None:
+            last_occupancy = room_state.get("lastOccupancy")
+        if occupancy_changed_at is None:
+            occupancy_changed_at = room_state.get("occupancyChangedAt")
+
+        # Get last check time (prefer canonical, fall back to legacy)
+        last_check = room_state.get("last_check") or room_state.get("lastCheck")
+
+        # Get last motion time for vacancy verification context
+        last_motion_at = room_state.get("last_motion_at")
+
+        room_states[room_name] = {
+            "lastCheck": last_check,
+            "lastOccupancy": last_occupancy,
+            "occupancyChangedAt": occupancy_changed_at,
+            "lastMotionAt": last_motion_at
+        }
+
+        # Collect observations from canonical field
+        observations = list(room_state.get("recent_observations", []))
+
+        # Also check legacy field and merge if present
+        legacy_observations = room_state.get("recentObservations", [])
+        if legacy_observations:
+            existing_timestamps = {obs.get('timestamp') for obs in observations}
+            for legacy_obs in legacy_observations:
+                if legacy_obs.get('timestamp') not in existing_timestamps:
+                    observations.append(legacy_obs)
+
+        # Filter out pending observations if we have real observations
+        real_observations = [obs for obs in observations if not obs.get('pending')]
+        if real_observations:
+            observations = real_observations
+
+        for obs in observations:
+            all_observations.append({"room": room_name, **obs})
+
+    # Sort observations by timestamp descending
+    all_observations.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+    return {
+        "enabled": config.enabled,
+        "activeHours": config.active_hours.is_active(datetime.now().hour),
+        "activeHoursConfig": {
+            "start": config.active_hours.start,
+            "end": config.active_hours.end
+        },
+        "checkInterval": config.check_interval_minutes,
+        "cooldown": config.cooldown_minutes,
+        "motionCooldown": config.motion_cooldown_minutes,
+        "motionAware": config.motion_aware,
+        "instantAlerts": config.instant_alerts,
+        "quietMode": config.quiet_mode,
+        "autoActions": {"enabled": config.auto_actions.enabled},
+        "lastPoll": state.get("last_poll"),
+        "cameras": list(config.get_enabled_cameras().keys()),
+        "roomStates": room_states,
+        "recentObservations": all_observations[:10]
+    }
+
+
+def get_config():
+    """Get config dict (legacy compat)."""
+    config = JarvisConfig.load(CONFIG_FILE)
+    return {
+        "enabled": config.enabled,
+        "checkIntervalMinutes": config.check_interval_minutes,
+        "cooldownMinutes": config.cooldown_minutes,
+        "motionCooldownMinutes": config.motion_cooldown_minutes,
+        "motionAware": config.motion_aware,
+        "instantAlerts": config.instant_alerts,
+        "quietMode": config.quiet_mode,
+        "autoActions": {"enabled": config.auto_actions.enabled},
+        "activeHours": {
+            "start": config.active_hours.start,
+            "end": config.active_hours.end
+        },
+        "cameras": {name: True for name in config.cameras.keys()}
+    }
+
+
+def save_json(path, data):
+    """Save JSON file (legacy compat)."""
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def is_enabled():
+    """Check if Jarvis is enabled (legacy compat)."""
+    config = JarvisConfig.load(CONFIG_FILE)
+    return config.enabled
+
+
+def is_active_hours():
+    """Check if currently in active hours (legacy compat)."""
+    config = JarvisConfig.load(CONFIG_FILE)
+    return config.active_hours.is_active(datetime.now().hour)
+
+
+def should_check_room(room_name):
+    """Legacy compat for checking if room should be checked."""
+    try:
+        from services.occupancy_service import OccupancyService
+        from services.ha_service import HAService
+
+        config = JarvisConfig.load(CONFIG_FILE)
+        state_manager = StateManager(STATE_FILE)
+        ha_service = HAService(config.ha_url, config.ha_token)
+        occupancy_service = OccupancyService(config, state_manager, ha_service)
+
+        return occupancy_service.should_check_room(room_name, trigger="scheduled")
+    except Exception as e:
+        return {"should_check": False, "reason": str(e), "motion_state": None}
+
+
+def record_observation(room_name, observation):
+    """Legacy compat for recording observations."""
+    state_manager = StateManager(STATE_FILE)
+    if "timestamp" not in observation:
+        observation["timestamp"] = datetime.now().isoformat()
+    state_manager.record_observation(room_name, observation)
+
+
+def main():
+    """Main entry point."""
+    cli = JarvisCLI()
+    cli.run(sys.argv)
 
 
 if __name__ == "__main__":

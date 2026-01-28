@@ -960,24 +960,27 @@
             if (status.cameras && status.cameras.length > 0) {
                 cameraList.innerHTML = status.cameras.map(camera => {
                     const roomState = status.roomStates[camera] || {};
+                    // Occupancy is now always definitive (no "unknown" state)
+                    // - true = occupied (motion detected or not yet verified empty)
+                    // - false = verified empty (camera confirmed no one present)
                     const isOccupied = roomState.lastOccupancy === true;
+
+                    // Motion dot class
                     const motionClass = isOccupied ? 'active' : 'inactive';
-                    const occupancyText = isOccupied ? 'Occupied' : 'Empty';
-                    
+
                     // Status badge
-                    let badge = '';
-                    if (isOccupied) {
-                        badge = '<span class="badge ready">Occupied</span>';
-                    } else {
-                        badge = '<span class="badge no-motion">Empty</span>';
+                    const badge = isOccupied
+                        ? '<span class="badge ready">Occupied</span>'
+                        : '<span class="badge no-motion">Empty</span>';
+
+                    // Context info - show motion time if occupied, empty since if not
+                    let contextText = '';
+                    if (isOccupied && roomState.lastMotionAt) {
+                        contextText = ` • Motion ${formatTime(roomState.lastMotionAt)}`;
+                    } else if (!isOccupied && roomState.occupancyChangedAt) {
+                        contextText = ` • Empty since ${formatTime(roomState.occupancyChangedAt)}`;
                     }
-                    
-                    // Time since occupancy changed
-                    let changedText = '';
-                    if (roomState.occupancyChangedAt) {
-                        changedText = ` • Changed ${formatTime(roomState.occupancyChangedAt)}`;
-                    }
-                    
+
                     return `
                         <div class="camera-item">
                             <div class="camera-info">
@@ -986,7 +989,7 @@
                                 </div>
                                 <div>
                                     <div class="camera-name">${formatRoomName(camera)}${badge}</div>
-                                    <div class="camera-status">Last check: ${roomState.lastCheck ? formatTime(roomState.lastCheck) : 'Never'}${changedText}</div>
+                                    <div class="camera-status">Last check: ${roomState.lastCheck ? formatTime(roomState.lastCheck) : 'Never'}${contextText}</div>
                                 </div>
                             </div>
                             <div class="camera-actions">
