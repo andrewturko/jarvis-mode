@@ -3,12 +3,17 @@
 Camera snapshot service for Jarvis Mode.
 
 Handles camera snapshot capture from Home Assistant with cooldown tracking.
+Now includes vision analysis for person detection.
 """
 
+import base64
+import json
+import os
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+import urllib.request
 
 from core.logger import get_logger
 from core.state_manager import StateManager
@@ -224,3 +229,147 @@ class SnapshotService:
                           days=days)
         except Exception as e:
             logger.error("cleanup_snapshots_error", error=str(e), exc_info=True)
+
+    def analyze_for_person(self, snapshot_path: str) -> Dict[str, Any]:
+        """
+        Analyze snapshot for person presence using Claude vision API.
+
+        This is the source of truth for occupancy — motion sensors only detect
+        movement, not presence. Someone sitting still is still there.
+
+        Args:
+            snapshot_path: Path to snapshot image
+
+        Returns:
+            Dict with:
+                - person_detected (bool): True if person visible
+                - confidence (str): high/medium/low
+                - description (str): Brief description of what's seen
+        """
+        # Get API key from environment or clawdbot config
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+        if not api_key:
+            config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+            if config_path.exists():
+                try:
+                    with open(config_path) as f:
+                        config = json.load(f)
+                    # Try to get from auth profiles
+                    profiles = config.get("auth", {}).get("profiles", {})
+                    for profile in profiles.values():
+                        if profile.get("provider") == "anthropic" and profile.get("apiKey"):
+                            api_key = profile["apiKey"]
+                            break
+                except Exception:
+                    pass
+
+        if not api_key:
+            # Try .anthropic file
+            anthropic_file = Path.home() / ".anthropic"
+            if anthropic_file.exists():
+                try:
+                    api_key = anthropic_file.read_text().strip()
+                except Exception:
+                    pass
+
+        if not api_key:
+            logger.warning("vision_analysis_no_api_key")
+            return {
+                "person_detected": None,
+                "confidence": "unknown",
+                "description": "No API key available for vision analysis"
+            }
+
+        # Read and encode image
+        try:
+            with open(snapshot_path, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            logger.error("vision_read_image_failed", error=str(e))
+            return {
+                "person_detected": None,
+                "confidence": "unknown",
+                "description": f"Failed to read image: {e}"
+            }
+
+        # Call Claude API with vision
+        try:
+            request_body = json.dumps({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 100,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_data
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": "Is there a person in this image? Reply with ONLY a JSON object: {\"person\": true/false, \"confidence\": \"high\"/\"medium\"/\"low\", \"brief\": \"2-3 word description\"}. Nothing else."
+                        }
+                    ]
+                }]
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01"
+                }
+            )
+
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                result = json.loads(resp.read().decode())
+
+            # Parse response
+            text = result.get("content", [{}])[0].get("text", "")
+
+            # Extract JSON from response
+            try:
+                # Handle potential markdown wrapping
+                if "```" in text:
+                    text = text.split("```")[1]
+                    if text.startswith("json"):
+                        text = text[4:]
+
+                parsed = json.loads(text.strip())
+                person_detected = parsed.get("person", False)
+                confidence = parsed.get("confidence", "medium")
+                description = parsed.get("brief", "analyzed")
+
+                logger.info("vision_analysis_complete",
+                           person_detected=person_detected,
+                           confidence=confidence)
+
+                return {
+                    "person_detected": person_detected,
+                    "confidence": confidence,
+                    "description": description
+                }
+            except json.JSONDecodeError:
+                # Fallback: look for keywords
+                text_lower = text.lower()
+                person_detected = "yes" in text_lower or "person" in text_lower or "true" in text_lower
+
+                return {
+                    "person_detected": person_detected,
+                    "confidence": "low",
+                    "description": text[:50]
+                }
+
+        except Exception as e:
+            logger.error("vision_api_failed", error=str(e))
+            return {
+                "person_detected": None,
+                "confidence": "unknown",
+                "description": f"Vision API error: {e}"
+            }

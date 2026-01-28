@@ -1,23 +1,54 @@
-# Runtime state
+# Runtime state (contains personal activity data)
 state.json
+state.lock
 triggers.json
 patterns.json
+metrics.json
+*.backup*
 
-# User-specific (generated/configured)
+# User-specific config (generated/configured per home)
 home-inventory.json
 config.json
 capabilities.json
 voice-config.json
 
-# Snapshots (camera images)
+# Behavioral learning database (personal patterns)
+data/
+events.db
+
+# Camera snapshots (privacy)
 snapshots/
 *.jpg
 *.png
 
+# Logs (may contain personal info)
+logs/
+*.log
+
 # Python
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+.venv/
+venv/
 
-# Logs
-*.log
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# IDE/Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code sessions
+.claude/
+
+# Keep example files for shareability
+!*.example.json
+!capabilities.example.json
+!config.example.json
+!state.example.json

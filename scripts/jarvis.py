@@ -121,6 +121,17 @@ class JarvisCLI:
         else:
             return None
 
+    def _occupancy_note(self, source: str, has_snapshot: bool) -> str:
+        """Generate context-aware note about occupancy verification status."""
+        if source == "motion_on":
+            return None  # Verified, no note needed
+        elif source == "snapshot_pending":
+            return "VERIFY from snapshot — motion off but check image for stationary person."
+        elif source == "last_known":
+            return "Using last known state (cooldown active, no snapshot). May be stale."
+        else:
+            return "Occupancy unverified."
+
     def _get_external_context(self, home_state: dict) -> dict:
         """
         Query external plugins for compound context.
@@ -348,11 +359,42 @@ class JarvisCLI:
         # Get home state
         home_state = self.ha_service.get_home_state()
 
-        # Get motion state
-        person_detected = self.ha_service.is_motion_detected(camera_config.motion_sensor) if camera_config.motion_sensor else None
+        # Get motion state (fallback only)
+        motion_detected = self.ha_service.is_motion_detected(camera_config.motion_sensor) if camera_config.motion_sensor else None
 
-        # Update state with current occupancy (for accurate UI monitoring)
-        if person_detected is not None:
+        # OCCUPANCY LOGIC:
+        # Motion sensors only detect movement, not presence — someone sitting still won't trigger
+        #
+        # - Motion ON → definitely occupied (verified)
+        # - Motion OFF + snapshot → unverified, Claude checks visually
+        # - Motion OFF + no snapshot (cooldown) → use LAST KNOWN state as best guess
+        #
+        # Cooldown is from UI settings (config.cooldown_minutes)
+
+        # Get last known state from storage
+        last_known_state = self.state_manager.get_room_state(room)
+        last_known_occupied = last_known_state.get('occupancy', {}).get('current') if last_known_state else None
+
+        if motion_detected:
+            # Motion ON → definitely occupied
+            person_detected = True
+            occupancy_verified = True
+            occupancy_source = "motion_on"
+        elif snapshot:
+            # Motion OFF but we have snapshot → Claude will verify visually
+            # Use last known as best guess until Claude checks
+            person_detected = last_known_occupied if last_known_occupied is not None else False
+            occupancy_verified = False
+            occupancy_source = "snapshot_pending"
+        else:
+            # Motion OFF and no snapshot (cooldown) → trust last known state
+            person_detected = last_known_occupied if last_known_occupied is not None else False
+            occupancy_verified = False
+            occupancy_source = "last_known"
+
+        # Only update state if we have verified info (motion ON)
+        # Don't overwrite with unverified guesses
+        if occupancy_verified and person_detected is not None:
             self.state_manager.update_occupancy(room, person_detected)
 
         # Update last check timestamp for this room
@@ -471,6 +513,10 @@ class JarvisCLI:
 
             "room_state": {
                 "occupancy": "occupied" if person_detected else "empty",
+                "occupancy_verified": occupancy_verified,
+                "occupancy_source": occupancy_source,
+                "occupancy_note": self._occupancy_note(occupancy_source, snapshot),
+                "motion_sensor_says": "motion" if motion_detected else "no_motion",
                 "occupancy_duration_minutes": occupancy_duration or 0,
                 "lights_on": room_lights,
                 "recent_activity": activity_timeline[:5]
