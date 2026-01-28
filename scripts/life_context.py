@@ -11,6 +11,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 # Add services to path for pattern analyzer
 sys.path.insert(0, str(Path(__file__).parent / "services"))
@@ -238,7 +239,44 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                 })
     
     # Context-specific suggestions
-    if context == "post_meal":
+    if context == "cooking":
+        # Cooking needs: background_entertainment, comfort, assistance
+        if "music" in capabilities:
+            music_caps = capabilities["music"]
+            suggestions.append({
+                "type": "entertainment",
+                "action": "play_cooking_music",
+                "reason": "Some background music while you cook",
+                "priority": "low"
+            })
+
+        if "lighting" in capabilities:
+            suggestions.append({
+                "type": "comfort",
+                "action": "kitchen_bright_lights",
+                "reason": "Bright lighting for food prep",
+                "priority": "low"
+            })
+
+    elif context == "eating":
+        # Eating needs: comfort, entertainment, ambiance
+        if "music" in capabilities:
+            suggestions.append({
+                "type": "ambiance",
+                "action": "play_dining_music",
+                "reason": "Pleasant music for your meal",
+                "priority": "low"
+            })
+
+        if "lighting" in capabilities:
+            suggestions.append({
+                "type": "ambiance",
+                "action": "dim_dining_lights",
+                "reason": "Softer lighting for dining",
+                "priority": "low"
+            })
+
+    elif context == "post_meal":
         if "vacuum" in capabilities:
             vacuum_caps = capabilities["vacuum"].get("devices", {})
             if vacuum_caps:
@@ -251,6 +289,33 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                     "priority": "medium"
                 })
     
+    elif context in ["waking_up", "morning_routine"]:
+        # Morning needs: gentle start, music, news, weather awareness
+        if "music" in capabilities:
+            suggestions.append({
+                "type": "ambiance",
+                "action": "play_morning_music",
+                "reason": "Some light music to start the day",
+                "priority": "low"
+            })
+
+        if "shades" in capabilities:
+            suggestions.append({
+                "type": "comfort",
+                "action": "open_shades",
+                "reason": "Let some natural light in",
+                "priority": "low"
+            })
+
+        # If weekday morning, mention vacuum opportunity when leaving
+        if "vacuum" in capabilities:
+            suggestions.append({
+                "type": "planning",
+                "action": "schedule_vacuum_departure",
+                "reason": "I can run the vacuum when you leave for work",
+                "priority": "low"
+            })
+
     elif context == "winding_down":
         # Suggest entertainment if not playing
         if "tv" in capabilities:
@@ -347,6 +412,183 @@ def record_suggestion_response(suggestion: dict, accepted: bool):
     save_patterns(patterns)
 
 
+def record_sent_suggestion(room: str, suggestion: dict, message_sent: str = None, context: str = None):
+    """
+    Record that a suggestion was SENT to the user.
+
+    This is different from suggestions being generated - this tracks
+    what was actually delivered via message tool.
+
+    Args:
+        room: Room where the suggestion was made
+        suggestion: The suggestion dict that was acted on
+        message_sent: The actual message text sent to user
+        context: The inferred context (e.g., "waking_up", "cooking") - important for learning
+    """
+    patterns = get_patterns()
+
+    # Initialize sent_suggestions if needed
+    if "sent_suggestions" not in patterns:
+        patterns["sent_suggestions"] = {"recent": []}
+
+    # Infer context from room if not provided
+    inferred_context = context
+    if not inferred_context:
+        # Try to get from state.json
+        state = load_json(STATE_FILE)
+        room_data = state.get("rooms", {}).get(room, {})
+        last_ctx = room_data.get("last_context", {})
+        inferred_context = last_ctx.get("inferred") if last_ctx else None
+
+    # Ensure suggestion has context for learning
+    suggestion_with_context = dict(suggestion)
+    if inferred_context:
+        suggestion_with_context["context"] = inferred_context
+
+    patterns["sent_suggestions"]["recent"].append({
+        "timestamp": datetime.now().isoformat(),
+        "room": room,
+        "context": inferred_context,
+        "suggestion": suggestion_with_context,
+        "message": message_sent,
+        "awaiting_feedback": True
+    })
+
+    # Keep last 100 sent suggestions
+    patterns["sent_suggestions"]["recent"] = patterns["sent_suggestions"]["recent"][-100:]
+
+    # Also track the most recent one for easy feedback matching
+    patterns["sent_suggestions"]["last"] = {
+        "timestamp": datetime.now().isoformat(),
+        "room": room,
+        "context": inferred_context,
+        "suggestion": suggestion_with_context,
+        "message": message_sent
+    }
+
+    save_patterns(patterns)
+
+
+def get_last_awaiting_feedback() -> Optional[dict]:
+    """
+    Get the most recent suggestion that's awaiting user feedback.
+
+    Returns:
+        Dict with suggestion info or None if nothing awaiting
+    """
+    patterns = get_patterns()
+    last = patterns.get("sent_suggestions", {}).get("last")
+
+    if not last:
+        return None
+
+    # Check if it was sent within the last hour (reasonable response window)
+    try:
+        timestamp = datetime.fromisoformat(last.get("timestamp", ""))
+        if datetime.now() - timestamp > timedelta(hours=1):
+            return None
+    except (ValueError, AttributeError):
+        return None
+
+    return last
+
+
+def process_user_feedback(response: str) -> Optional[dict]:
+    """
+    Process a user's yes/no response to the last suggestion.
+
+    Args:
+        response: User's response text (e.g., "yes", "no", "sure", "nah")
+
+    Returns:
+        Dict with feedback result or None if no suggestion awaiting
+    """
+    last = get_last_awaiting_feedback()
+    if not last:
+        return None
+
+    # Determine if accepted
+    positive_responses = ["yes", "yeah", "sure", "ok", "okay", "do it", "please", "yep", "y"]
+    negative_responses = ["no", "nope", "nah", "not now", "later", "skip", "n"]
+
+    response_lower = response.lower().strip()
+
+    accepted = None
+    if any(pos in response_lower for pos in positive_responses):
+        accepted = True
+    elif any(neg in response_lower for neg in negative_responses):
+        accepted = False
+    else:
+        return None  # Couldn't determine intent
+
+    # Record the feedback
+    suggestion = last.get("suggestion", {})
+    # Use the stored context from when the suggestion was sent
+    if "context" not in suggestion:
+        suggestion["context"] = last.get("context") or last.get("room", "unknown")
+    record_suggestion_response(suggestion, accepted)
+
+    # Clear the awaiting feedback
+    patterns = get_patterns()
+    if "sent_suggestions" in patterns:
+        patterns["sent_suggestions"]["last"] = None
+        save_patterns(patterns)
+
+    return {
+        "suggestion": suggestion.get("action"),
+        "accepted": accepted,
+        "room": last.get("room")
+    }
+
+
+def get_recently_sent_suggestions(hours: int = 2) -> list:
+    """
+    Get suggestions that were SENT to user in recent hours.
+
+    Args:
+        hours: How many hours to look back
+
+    Returns:
+        List of sent suggestion records
+    """
+    patterns = get_patterns()
+    sent = patterns.get("sent_suggestions", {}).get("recent", [])
+
+    cutoff = datetime.now() - timedelta(hours=hours)
+    recent = []
+
+    for entry in sent:
+        try:
+            timestamp = datetime.fromisoformat(entry.get("timestamp", ""))
+            if timestamp >= cutoff:
+                recent.append(entry)
+        except (ValueError, AttributeError):
+            continue
+
+    return recent
+
+
+def was_suggestion_sent_recently(suggestion_action: str, hours: int = 2) -> bool:
+    """
+    Check if a specific suggestion action was sent recently.
+
+    Args:
+        suggestion_action: The action name (e.g., "play_morning_music")
+        hours: How many hours to look back
+
+    Returns:
+        True if this suggestion was sent within the time window
+    """
+    recent = get_recently_sent_suggestions(hours)
+
+    for entry in recent:
+        sent_action = entry.get("suggestion", {}).get("action")
+        if sent_action == suggestion_action:
+            return True
+
+    return False
+
+
 def should_stay_silent(
     context: dict,
     suggestions: list,
@@ -383,12 +625,25 @@ def should_stay_silent(
     previous_context = context.get("previous_context")
 
     # Rule 1: Low confidence -> stay silent
-    if confidence < 0.5:
+    # Threshold lowered from 0.5 to 0.25 to allow more contexts through
+    if confidence < 0.25:
         return True, f"Low confidence ({confidence:.2f})"
 
     # Rule 2: No suggestions -> stay silent
     if not suggestions:
         return True, "No actionable suggestions"
+
+    # Rule 2.5: Filter out suggestions already SENT to user recently
+    # This prevents duplicate messages even if the decision_log shows should_speak
+    recently_sent = get_recently_sent_suggestions(hours=2)
+    sent_actions = {entry.get("suggestion", {}).get("action") for entry in recently_sent}
+
+    not_yet_sent = [s for s in suggestions if s.get("action") not in sent_actions]
+    if not not_yet_sent:
+        return True, "All suggestions already sent to user recently"
+
+    # Use filtered suggestions for remaining rules
+    suggestions = not_yet_sent
 
     # Rule 3: Focus contexts -> stay silent
     focus_contexts = ["working", "sleeping", "concentrating", "on_call", "meeting"]
@@ -417,9 +672,11 @@ def should_stay_silent(
     if urgent_suggestions:
         return False, "Safety or urgent issue detected"
 
-    # Rule 8: Context stable with medium suggestions -> conditional speak
-    if len(new_suggestions) > 0 and confidence > 0.6:
-        return False, f"New suggestions available with good confidence ({confidence:.2f})"
+    # Rule 8: Context stable with new suggestions -> speak
+    # Threshold lowered from 0.6 to 0.3 - if we passed the basic confidence check
+    # and have new suggestions, we should offer them
+    if len(new_suggestions) > 0 and confidence > 0.3:
+        return False, f"New suggestions available ({confidence:.0%} confidence)"
 
     # Default: stay silent
     return True, "No compelling reason to speak"

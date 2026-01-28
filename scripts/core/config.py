@@ -42,8 +42,9 @@ class ActiveHoursConfig:
         """Validate hours are in valid range."""
         if not (0 <= self.start <= 23):
             raise ValueError(f"start hour must be 0-23, got {self.start}")
-        if not (0 <= self.end <= 23):
-            raise ValueError(f"end hour must be 0-23, got {self.end}")
+        # Allow end=24 to represent "end of day" (24/7 when start=0)
+        if not (0 <= self.end <= 24):
+            raise ValueError(f"end hour must be 0-24, got {self.end}")
 
     def is_active(self, hour: int) -> bool:
         """Check if given hour is within active hours."""

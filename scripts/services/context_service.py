@@ -263,7 +263,8 @@ class ContextService:
         previous_context = context_result.get("previous_context")
 
         # Rule 1: Low confidence -> stay silent
-        if confidence < 0.5:
+        # Threshold lowered from 0.5 to 0.25 to allow more contexts through
+        if confidence < 0.25:
             return False, f"Low confidence ({confidence})"
 
         # Rule 2: No suggestions -> stay silent

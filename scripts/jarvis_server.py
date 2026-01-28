@@ -27,6 +27,16 @@ PORT = int(os.environ.get('JARVIS_PORT', '8088'))
 UI_DIR = SKILL_DIR / "ui"
 STATE_FILE = SKILL_DIR / "state.json"
 
+
+def get_raw_config():
+    """Read raw config.json without transformation (for saving back)."""
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 # Telegram notification (via Clawdbot gateway)
 # (GATEWAY_URL defined below near notify_clawdbot)
 
@@ -232,12 +242,12 @@ class JarvisHandler(SimpleHTTPRequestHandler):
         
         # Toggle: POST /api/toggle
         if path == '/api/toggle':
-            config = get_config()
+            config = get_raw_config()
             config['enabled'] = body.get('enabled', not config.get('enabled', False))
             save_json(CONFIG_FILE, config)
             self.send_json({"enabled": config['enabled']})
             return
-        
+
         # Update setting: POST /api/setting
         if path == '/api/setting':
             key = body.get('key')
@@ -245,7 +255,7 @@ class JarvisHandler(SimpleHTTPRequestHandler):
             if not key:
                 self.send_json({"error": "Missing key"}, 400)
                 return
-            config = get_config()
+            config = get_raw_config()
             config[key] = value
             save_json(CONFIG_FILE, config)
             

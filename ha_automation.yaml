@@ -27,9 +27,9 @@ max: 10
 trigger:
   - platform: state
     entity_id:
-      - binary_sensor.kitchen_motion
-      - binary_sensor.living_room_motion
-      - binary_sensor.dining_motion
+      - binary_sensor.kitchen_person_detected
+      - binary_sensor.living_room_person_detected
+      - binary_sensor.dining_person_detected
     from: "off"
     to: "on"
 
@@ -37,7 +37,7 @@ action:
   - service: rest_command.jarvis_motion
     data:
       room: >-
-        {{ trigger.entity_id | replace('binary_sensor.', '') | replace('_motion', '') }}
+        {{ trigger.entity_id | replace('binary_sensor.', '') | replace('_person_detected', '') }}
 
 # =============================================================================
 # ALTERNATIVE: Call Clawdbot gateway directly (bypasses Jarvis cooldowns)

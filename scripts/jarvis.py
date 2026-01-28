@@ -206,6 +206,10 @@ class JarvisCLI:
                 self.cmd_setup()
             elif cmd == "feedback":
                 self.cmd_feedback(args)
+            elif cmd == "sent":
+                self.cmd_sent(args)
+            elif cmd == "respond":
+                self.cmd_respond(args)
             elif cmd == "decisions":
                 self.cmd_decisions(args)
             elif cmd == "patterns":
@@ -240,6 +244,8 @@ class JarvisCLI:
         print("  room-lights <room>          Get lights on in room")
         print("  record <room> <json|activity>  Record observation")
         print("  feedback <suggestion_json> <accepted|rejected>  Record suggestion feedback")
+        print("  sent <room> <suggestion_json> [message]  Record that suggestion was sent")
+        print("  respond <user_response>     Process yes/no response to last suggestion")
         print("  decisions [--limit N] [--room ROOM]  View decision audit trail")
         print("  patterns [--analyze]        View learned behavior patterns")
         print("  events [--hours N]          View collected HA events")
@@ -436,6 +442,15 @@ class JarvisCLI:
         capabilities = life_context.get_capabilities()
         suggestions = life_context.get_suggestions(context_inference, capabilities)
 
+        # Filter out suggestions already sent recently (prevents duplicate messages)
+        recently_sent = life_context.get_recently_sent_suggestions(hours=2)
+        sent_actions = {entry.get("suggestion", {}).get("action") for entry in recently_sent}
+        suggestions_not_yet_sent = [s for s in suggestions if s.get("action") not in sent_actions]
+
+        # If some were filtered, note it
+        filtered_count = len(suggestions) - len(suggestions_not_yet_sent)
+        suggestions = suggestions_not_yet_sent
+
         # Get learned patterns (file-based legacy)
         patterns = life_context.get_patterns()
         learned_patterns = patterns.get("learned_patterns", {}).get("patterns", {})
@@ -544,9 +559,15 @@ class JarvisCLI:
 
             "suggestions": suggestions,
 
+            # Raw home capabilities - Claude reasons about what's relevant
+            # This is the live home inventory from capabilities.json
+            "capabilities": capabilities,
+
             "decision_context": {
                 "should_speak": not should_be_silent,
                 "silence_reason": silence_reason if should_be_silent else None,
+                "suggestions_filtered": filtered_count,
+                "filtered_note": f"{filtered_count} suggestions already sent recently" if filtered_count > 0 else None,
                 "last_decision_time": last_decision.get("timestamp") if last_decision else None,
                 "last_decision": last_decision.get("decision") if last_decision else None,
                 "quiet_mode": self.config.quiet_mode,
@@ -563,12 +584,23 @@ class JarvisCLI:
             "context_inferred": context_inference.get("context", "unknown"),
             "confidence": context_inference.get("confidence", 0),
             "suggestions_generated": len(suggestions),
+            "suggestions_filtered": filtered_count,
             "decision": "should_speak" if not should_be_silent else "silent",
             "reason": silence_reason if should_be_silent else "Context suggests speaking",
             "suggestions_offered": [s.get("action") for s in suggestions] if suggestions else []
         }
 
         self.state_manager.log_decision(decision_entry)
+
+        # Save last inferred context to state for learning loop
+        # The 'sent' command uses this to associate feedback with the correct context
+        self.state_manager.update_room(room, {
+            "last_context": {
+                "inferred": context_inference.get("context", "unknown"),
+                "confidence": context_inference.get("confidence", 0),
+                "timestamp": now.isoformat()
+            }
+        })
 
         # Record observation to replace pending "analyzing..." state
         # This gives the UI immediate feedback about what was detected
@@ -772,6 +804,82 @@ class JarvisCLI:
             "accepted": accepted
         }))
 
+    def cmd_sent(self, args):
+        """
+        Record that a suggestion was SENT to the user.
+
+        Usage: jarvis.py sent <room> <suggestion_json> [message_text]
+
+        Call this AFTER using the message tool to send a suggestion.
+        This prevents duplicate suggestions from being sent.
+
+        Example:
+            jarvis.py sent living_room '{"action":"play_morning_music","type":"ambiance"}' "Morning! Want some music?"
+        """
+        if len(args) < 4:
+            print("Usage: jarvis.py sent <room> <suggestion_json> [message_text]", file=sys.stderr)
+            sys.exit(1)
+
+        room = args[2]
+
+        # Parse suggestion JSON
+        try:
+            suggestion = json.loads(args[3])
+        except json.JSONDecodeError as e:
+            print(f"Invalid suggestion JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Optional message text
+        message_text = args[4] if len(args) > 4 else None
+
+        # Record the sent suggestion
+        life_context.record_sent_suggestion(room, suggestion, message_text)
+
+        logger.info(
+            "suggestion_sent_recorded",
+            room=room,
+            action=suggestion.get("action"),
+            message=message_text[:50] if message_text else None
+        )
+
+        print(json.dumps({
+            "recorded": True,
+            "room": room,
+            "suggestion": suggestion.get("action"),
+            "awaiting_feedback": True
+        }))
+
+    def cmd_respond(self, args):
+        """
+        Process user's yes/no response to a recent suggestion.
+
+        Usage: jarvis.py respond <user_response>
+
+        The user_response should be something like "yes", "no", "sure", "nah".
+        This will find the most recent suggestion awaiting feedback and record
+        the user's response for learning.
+
+        Returns JSON with the processed feedback or null if no suggestion awaiting.
+        """
+        if len(args) < 3:
+            print("Usage: jarvis.py respond <user_response>", file=sys.stderr)
+            sys.exit(1)
+
+        response = " ".join(args[2:])  # Join in case response has spaces
+
+        result = life_context.process_user_feedback(response)
+
+        if result:
+            logger.info(
+                "user_feedback_processed",
+                suggestion=result.get("suggestion"),
+                accepted=result.get("accepted"),
+                room=result.get("room")
+            )
+            print(json.dumps(result))
+        else:
+            print(json.dumps({"processed": False, "reason": "No suggestion awaiting feedback or couldn't parse response"}))
+
     def cmd_decisions(self, args):
         """
         View recent decision audit trail.
@@ -911,9 +1019,9 @@ class JarvisCLI:
             print(json.dumps({"success": False, "error": f"Failed to load hooks.json: {e}"}))
             sys.exit(1)
 
-        # Update hooks with channel from config
-        for mapping in hooks_def.get("hooks", {}).get("mappings", []):
-            mapping["channel"] = self.config.notify_channel
+        # Note: We no longer add channel to mappings - the agent uses the message tool
+        # directly to send to Telegram (target: 8208227354). This prevents accidental
+        # delivery of agent text output that isn't meant for the user.
 
         # Patch hooks into clawdbot.json
         clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
@@ -1078,7 +1186,7 @@ def is_active_hours():
     return config.active_hours.is_active(datetime.now().hour)
 
 
-def should_check_room(room_name):
+def should_check_room(room_name, trigger="scheduled"):
     """Legacy compat for checking if room should be checked."""
     try:
         from services.occupancy_service import OccupancyService
@@ -1086,10 +1194,10 @@ def should_check_room(room_name):
 
         config = JarvisConfig.load(CONFIG_FILE)
         state_manager = StateManager(STATE_FILE)
-        ha_service = HAService(config.ha_url, config.ha_token)
+        ha_service = HAService()  # Gets HA creds from env/config
         occupancy_service = OccupancyService(config, state_manager, ha_service)
 
-        return occupancy_service.should_check_room(room_name, trigger="scheduled")
+        return occupancy_service.should_check_room(room_name, trigger=trigger)
     except Exception as e:
         return {"should_check": False, "reason": str(e), "motion_state": None}
 
