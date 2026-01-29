@@ -13,6 +13,8 @@ capabilities.json
 voice-config.json
 
 # Behavioral learning database (personal patterns)
+preferences.json
+temporal-patterns.json
 data/
 events.db
 
