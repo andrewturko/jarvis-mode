@@ -473,8 +473,8 @@ def refresh_home_inventory():
         # Get HA config from service
         ha_service = HAService()
         env = os.environ.copy()
-        env["HA_URL"] = ha_service.url
-        env["HA_TOKEN"] = ha_service.token
+        env["HA_URL"] = ha_service.ha_url
+        env["HA_TOKEN"] = ha_service.ha_token
         result = subprocess.run(
             ["python3", str(SKILL_DIR / "scripts" / "refresh-inventory.py")],
             capture_output=True,
