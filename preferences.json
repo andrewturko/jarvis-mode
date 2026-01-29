@@ -1,0 +1,102 @@
+[
+  {
+    "category": "lighting",
+    "key": "nighttime_preference",
+    "value": "warm",
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.524631",
+    "updated_at": "2026-01-29T01:31:23.524638",
+    "access_count": 0
+  },
+  {
+    "category": "lighting",
+    "key": "bedtime_light",
+    "value": "wall_wash",
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.524968",
+    "updated_at": "2026-01-29T01:31:23.524970",
+    "access_count": 0
+  },
+  {
+    "category": "lighting",
+    "key": "late_night_dim",
+    "value": true,
+    "source": "observed",
+    "confidence": 0.9,
+    "created_at": "2026-01-29T01:31:23.525197",
+    "updated_at": "2026-01-29T01:31:23.525198",
+    "access_count": 0
+  },
+  {
+    "category": "volume",
+    "key": "default",
+    "value": 12,
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.525402",
+    "updated_at": "2026-01-29T01:31:23.525403",
+    "access_count": 0
+  },
+  {
+    "category": "volume",
+    "key": "others_sleeping",
+    "value": 10,
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.525600",
+    "updated_at": "2026-01-29T01:31:23.525601",
+    "access_count": 0
+  },
+  {
+    "category": "tv",
+    "key": "default_source",
+    "value": "Apple TV",
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.525799",
+    "updated_at": "2026-01-29T01:31:23.525800",
+    "access_count": 0
+  },
+  {
+    "category": "tv",
+    "key": "default_app",
+    "value": "YouTube",
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.525998",
+    "updated_at": "2026-01-29T01:31:23.525999",
+    "access_count": 0
+  },
+  {
+    "category": "room_grouping",
+    "key": "great_room",
+    "value": [
+      "living_room",
+      "kitchen",
+      "dining"
+    ],
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.526192",
+    "updated_at": "2026-01-29T01:31:23.526193",
+    "access_count": 0
+  },
+  {
+    "category": "suggestions",
+    "key": "suppress_late_night",
+    "value": {
+      "types": [
+        "cooking",
+        "eating"
+      ],
+      "after_hour": 23
+    },
+    "source": "stated",
+    "confidence": 1.0,
+    "created_at": "2026-01-29T01:31:23.526404",
+    "updated_at": "2026-01-29T01:31:23.526405",
+    "access_count": 0
+  }
+]

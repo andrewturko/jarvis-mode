@@ -29,6 +29,15 @@ try:
 except ImportError:
     TEMPORAL_LEARNING_AVAILABLE = False
 
+# Preference store — general-purpose preference learning
+try:
+    from preference_store import PreferenceStore
+    _pref_store = PreferenceStore()
+    PREFERENCE_STORE_AVAILABLE = True
+except ImportError:
+    _pref_store = None
+    PREFERENCE_STORE_AVAILABLE = False
+
 SKILL_DIR = Path(__file__).parent.parent
 LIFE_MODEL_FILE = SKILL_DIR / "life-model.json"
 CAPABILITIES_FILE = SKILL_DIR / "capabilities.json"
@@ -224,6 +233,10 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
     Checks current home state (music playing, lights on/off) to avoid
     suggesting things that are already active or irrelevant.
 
+    Also consults the preference store to:
+    - Suppress suggestions the user doesn't want
+    - Apply preference modifiers (e.g., preferred genres, lighting levels)
+
     Returns list of suggestion dicts with action, reason, priority, message.
     Each suggestion includes a pre-composed 'message' the agent can send directly.
     """
@@ -243,6 +256,11 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
     music_playing = home_state.get("music_playing", False)
     lights_on = home_state.get("lights_on", [])
     media_playing = home_state.get("media_playing", [])
+
+    # Load preference modifiers for this context
+    pref_modifiers = {}
+    if PREFERENCE_STORE_AVAILABLE and _pref_store:
+        pref_modifiers = _pref_store.get_preference_modifiers(context)
 
     suggestions = []
 
@@ -414,7 +432,82 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                 "message": "Nobody's home - want me to run a full clean?"
             })
 
+    # ------------------------------------------------------------------ #
+    # Preference-based filtering and modification
+    # ------------------------------------------------------------------ #
+    if PREFERENCE_STORE_AVAILABLE and _pref_store:
+        hour = time_ctx.get("hour")
+        filtered = []
+        for s in suggestions:
+            stype = s.get("type", "")
+            # Check if this suggestion type should be suppressed
+            if _pref_store.should_suppress(stype, context=context, hour=hour):
+                continue
+            # Also check by action name (e.g., suppress "play_cooking_music")
+            action = s.get("action", "")
+            if _pref_store.should_suppress(action, context=context, hour=hour):
+                continue
+            filtered.append(s)
+        suggestions = filtered
+
+        # Apply preference modifiers to enrich suggestion metadata
+        # (downstream consumers can use these to customize execution)
+        if pref_modifiers:
+            for s in suggestions:
+                s["_pref_modifiers"] = pref_modifiers
+
     return suggestions
+
+
+def record_preference(category: str, key: str, value, source: str = "stated",
+                      confidence: float = 1.0) -> Optional[dict]:
+    """
+    Record a user preference (convenience wrapper for the preference store).
+
+    Args:
+        category: Preference domain (music, lighting, suggestions, …)
+        key: Preference key
+        value: Any JSON-serializable value
+        source: Where it came from (stated, observed, routine, correction)
+        confidence: 0.0–1.0
+
+    Returns:
+        The recorded entry, or None if preference store unavailable.
+    """
+    if not PREFERENCE_STORE_AVAILABLE or not _pref_store:
+        return None
+    return _pref_store.record(category, key, value, source=source, confidence=confidence)
+
+
+def record_correction_from_feedback(wrong: str, right: str, context: str = None) -> Optional[dict]:
+    """
+    Record a correction when negative feedback includes what was wrong.
+
+    Args:
+        wrong: What Jarvis inferred incorrectly
+        right: What the user said was actually happening
+        context: Optional context key
+
+    Returns:
+        The recorded correction entry, or None if unavailable.
+    """
+    if not PREFERENCE_STORE_AVAILABLE or not _pref_store:
+        return None
+    return _pref_store.record_correction(wrong, right, context=context)
+
+
+def get_preference_modifiers(context: str) -> dict:
+    """Get preference-based modifiers for the given context."""
+    if not PREFERENCE_STORE_AVAILABLE or not _pref_store:
+        return {}
+    return _pref_store.get_preference_modifiers(context)
+
+
+def should_suppress_suggestion(suggestion_type: str, context: str = None, hour: int = None) -> bool:
+    """Check if a suggestion type should be suppressed."""
+    if not PREFERENCE_STORE_AVAILABLE or not _pref_store:
+        return False
+    return _pref_store.should_suppress(suggestion_type, context=context, hour=hour)
 
 
 def record_observation(context: str, room: str, observation: dict):

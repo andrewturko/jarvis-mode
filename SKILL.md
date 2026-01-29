@@ -82,16 +82,6 @@ Based on `home-inventory.json`, you can offer:
 - Source suggestions, not random playback
 - "Settling in on the couch. Apple TV?"
 
-## Files
-
-- `home-inventory.json` - Dynamic reference of all controllable entities and context rules
-- `config.json` - Settings (enabled, intervals, cameras)
-- `state.json` - Current state (last checks, observations, patterns)
-- `patterns.json` - Learned preferences over time
-- `scripts/jarvis.py` - Observation engine
-- `scripts/jarvis_server.py` - Web UI + webhook server
-- `ui/index.html` - Control panel
-
 ## Detection Modes
 
 ### Polling (State Tracking)
@@ -179,6 +169,115 @@ The UI at `localhost:8088` provides:
 - Settings adjustment
 
 Check buttons trigger webhooks that prompt full observation + suggestion cycle.
+
+## Preference Learning
+
+Jarvis learns user preferences over time from four sources:
+
+| Source | Confidence | Decays? | Example |
+|--------|-----------|---------|---------|
+| **Stated** | 1.0 (always) | Never | "I don't like jazz" |
+| **Observed** | 0.5–0.9 | Yes (~2%/day) | Always rejects morning music |
+| **Routine** | 1.0 | Never | "I work out on Mondays" |
+| **Correction** | 1.0 | Never | "That was dishes, not cooking" |
+
+### How Preferences Flow
+
+1. **User says something** → Agent calls `record` to store a stated preference
+2. **Jarvis generates suggestions** → `should_suppress()` filters out unwanted ones, `get_preference_modifiers()` customizes the rest
+3. **User corrects Jarvis** → Agent calls `correct` to record what went wrong
+4. **Time passes** → Observed preferences slowly decay unless reinforced
+
+### Recording Preferences (Agent Instructions)
+
+When the user states a preference in conversation, record it:
+
+```bash
+# Stated preference
+python3 scripts/services/preference_store.py record music genre_like jazz --source stated
+
+# Observed pattern (with confidence)
+python3 scripts/services/preference_store.py record suggestions time_preference '{"type":"music","suppress_hours":[6,7,8]}' --source observed --confidence 0.7
+
+# Routine
+python3 scripts/services/preference_store.py record routine workout '{"days":["monday"]}' --source routine
+
+# Suppress a suggestion type in a context
+python3 scripts/services/preference_store.py record suggestions suppress_context '{"context":"cleaning","type":"music"}' --source stated
+```
+
+### Recording Corrections
+
+When the user says Jarvis got something wrong:
+
+```bash
+python3 scripts/services/preference_store.py correct cooking dishes --context late_night_dining
+```
+
+### Querying Preferences
+
+```bash
+# All preferences
+python3 scripts/services/preference_store.py dump
+
+# Filter by category
+python3 scripts/services/preference_store.py query --category music
+
+# Only active (non-decayed) preferences
+python3 scripts/services/preference_store.py active --category lighting
+
+# Check if something should be suppressed
+python3 scripts/services/preference_store.py suppress entertainment cooking 22
+
+# Get modifiers for a context
+python3 scripts/services/preference_store.py modifiers winding_down
+```
+
+### Running Decay
+
+Decay observed preferences (run periodically, e.g. daily via cron):
+
+```bash
+python3 scripts/services/preference_store.py decay
+```
+
+### Integration with Suggestion Engine
+
+The preference store is automatically consulted by `life_context.get_suggestions()`:
+- **Before generating**: `should_suppress()` filters unwanted suggestion types
+- **After generating**: `_pref_modifiers` are attached to each suggestion for downstream use
+- **On correction**: call `record_correction_from_feedback()` via `life_context.py`
+
+### Seeded Defaults
+
+These are pre-loaded (run `python3 scripts/services/preference_store.py seed`):
+- Warm lighting at night
+- Wall wash light for bedtime
+- Default music volume 12% (10% if others sleeping)
+- TV default: Apple TV with YouTube
+- Great Room = Living + Kitchen + Dining
+- Don't suggest cooking/eating after 11pm
+
+### Storage
+
+Preferences are stored in `preferences.json` — a flat JSON list of entries.
+Human-readable, git-friendly, no database required.
+
+## Files
+
+- `home-inventory.json` — Dynamic reference of all controllable entities and context rules
+- `config.json` — Settings (enabled, intervals, cameras)
+- `state.json` — Current state (last checks, observations, patterns)
+- `patterns.json` — Learned suggestion acceptance patterns
+- `preferences.json` — Learned user preferences (general-purpose memory)
+- `temporal-patterns.json` — Learned temporal activity patterns
+- `life-model.json` — Static life context definitions
+- `scripts/life_context.py` — Context inference and suggestion engine
+- `scripts/services/preference_store.py` — Preference learning store (CLI + library)
+- `scripts/services/temporal_learner.py` — Temporal pattern learning
+- `scripts/jarvis.py` — Observation engine
+- `scripts/jarvis_server.py` — Web UI + webhook server
+- `ui/index.html` — Control panel
 
 ## Privacy
 
