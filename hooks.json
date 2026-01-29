@@ -1,5 +1,5 @@
 {
-  "description": "Jarvis Mode hooks for Clawdbot. Run 'jarvis.py setup' to register.",
+  "description": "Jarvis Mode hooks for Clawdbot. Run 'jarvis.py setup' to register. To see what Jarvis said today: jarvis.py activity",
   "hooks": {
     "mappings": [
       {

@@ -92,7 +92,8 @@ class ContextService:
         self,
         room: str,
         snapshot_path: Optional[str] = None,
-        vision_summary: Optional[Dict[str, Any]] = None
+        vision_summary: Optional[Dict[str, Any]] = None,
+        is_arrival: bool = False
     ) -> ContextAnalysis:
         """
         Analyze a room and produce rich context with suggestions.
@@ -138,7 +139,8 @@ class ContextService:
             context_result,
             suggestions,
             recent_obs,
-            room
+            room,
+            is_arrival=is_arrival
         )
 
         # 10. Build and return ContextAnalysis
@@ -232,7 +234,8 @@ class ContextService:
         context_result: Dict[str, Any],
         suggestions: List[Dict[str, Any]],
         recent_history: List[Dict[str, Any]],
-        room: str
+        room: str,
+        is_arrival: bool = False
     ) -> tuple[bool, Optional[str]]:
         """
         Determine if agent should speak based on silence logic.
@@ -261,6 +264,10 @@ class ContextService:
         context = context_result["context"]
         confidence = context_result["confidence"]
         previous_context = context_result.get("previous_context")
+
+        # Rule 0: Arrival bypass - always suggest when someone enters/re-enters
+        if is_arrival and suggestions:
+            return True, None
 
         # Rule 1: Low confidence -> stay silent
         # Threshold lowered from 0.5 to 0.25 to allow more contexts through
@@ -371,17 +378,18 @@ class ContextService:
         """
         Handle occupancy state transition.
 
-        Called when room occupancy changes (empty -> occupied or vice versa).
+        Called when room occupancy changes (empty -> occupied or vice versa),
+        or on re-arrival (from_state=True, to_state=True after motion gap).
 
         Args:
             room: Room name
             from_state: Previous occupancy state
             to_state: New occupancy state
         """
-        # Update context when transitioning to occupied
-        if to_state and not from_state:
-            # Room became occupied - analyze context
-            analysis = self.analyze_room(room)
+        # Handle arrival or re-arrival (both mean someone just entered)
+        if to_state:
+            is_arrival = True  # Both new arrival and re-arrival
+            analysis = self.analyze_room(room, is_arrival=is_arrival)
 
             # Update room state with inferred context
             self.state_manager.update_room(room, {

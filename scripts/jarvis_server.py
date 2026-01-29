@@ -9,6 +9,7 @@ Jarvis Mode Server
 import json
 import os
 import sys
+import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -26,6 +27,11 @@ from core.state_manager import StateManager
 PORT = int(os.environ.get('JARVIS_PORT', '8088'))
 UI_DIR = SKILL_DIR / "ui"
 STATE_FILE = SKILL_DIR / "state.json"
+
+# In-memory motion deduplication (survives across requests, resets on server restart)
+# Prevents burst triggers when multiple cameras fire simultaneously
+_last_motion_trigger = {}  # room -> timestamp (monotonic)
+_last_any_motion_trigger = 0.0  # timestamp of most recent trigger for any room
 
 
 def get_raw_config():
@@ -530,28 +536,48 @@ def handle_manual_check(room):
 
 def handle_motion_trigger(room):
     """Handle motion detection trigger from HA."""
-    
+    global _last_any_motion_trigger
+
     # Check if Jarvis is enabled
     if not is_enabled():
         return {"triggered": False, "reason": "jarvis disabled", "room": room}
-    
+
     # Check instant alerts setting
     config = get_config()
     if not config.get('instantAlerts', False):
         return {"triggered": False, "reason": "instant alerts disabled", "room": room}
-    
+
     # Check active hours
     if not is_active_hours():
         return {"triggered": False, "reason": "outside active hours", "room": room}
-    
-    # Check cooldown
+
+    # In-memory dedup: reject if this room was triggered recently
+    now = time.monotonic()
+    motion_cooldown = config.get('motionCooldownMinutes', 10) * 60
+    last_room_trigger = _last_motion_trigger.get(room, 0)
+    if (now - last_room_trigger) < motion_cooldown:
+        elapsed = int(now - last_room_trigger)
+        return {"triggered": False, "reason": f"in-memory cooldown ({elapsed}s ago)", "room": room}
+
+    # In-memory dedup: reject if ANY room was triggered within the motion cooldown
+    # This means Jarvis speaks at most once per cooldown window across all rooms.
+    # Prevents: walk into kitchen → greeted, walk into living room 45s later → greeted again
+    if (now - _last_any_motion_trigger) < motion_cooldown:
+        elapsed = int(now - _last_any_motion_trigger)
+        return {"triggered": False, "reason": f"global cooldown ({elapsed}s ago, another room)", "room": room}
+
+    # Check file-based cooldown (defense in depth)
     result = should_check_room(room, trigger="motion")
     if not result["should_check"]:
         return {"triggered": False, "reason": result["reason"], "room": room}
-    
+
+    # Update in-memory timestamps BEFORE async notify (prevents race condition)
+    _last_motion_trigger[room] = now
+    _last_any_motion_trigger = now
+
     # Motion triggered! Notify Clawdbot to do the analysis
     notify_clawdbot(room)
-    
+
     return {
         "triggered": True,
         "room": room,

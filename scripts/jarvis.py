@@ -20,6 +20,7 @@ from core import StateManager, JarvisConfig, get_logger, setup_logging
 # Services
 from services import HAService, SnapshotService, OccupancyService
 from services.context_service import ContextService
+from services.activity_log import ActivityLog
 
 # Handlers
 from handlers import EmptyRoomHandler, OccupiedRoomHandler
@@ -92,6 +93,9 @@ class JarvisCLI:
                 ha_service=self.ha_service,
                 context_service=self.context_service
             )
+
+            # Activity log for sharing Jarvis context with main clawdbot conversation
+            self.activity_log = ActivityLog()
 
             logger.info("jarvis_cli_initialized")
 
@@ -236,6 +240,8 @@ class JarvisCLI:
                 self.cmd_patterns(args)
             elif cmd == "events":
                 self.cmd_events(args)
+            elif cmd == "activity":
+                self.cmd_activity()
             else:
                 print(f"Unknown command: {cmd}", file=sys.stderr)
                 self.print_usage()
@@ -401,6 +407,21 @@ class JarvisCLI:
         last_known_state = self.state_manager.get_room_state(room)
         last_known_occupied = last_known_state.get('occupancy', {}).get('current') if last_known_state else None
 
+        # Detect arrival: motion after 10+ min gap or room was empty
+        is_arrival = False
+        if motion_detected:
+            last_motion_str = last_known_state.get('last_motion_at') if last_known_state else None
+            if last_motion_str:
+                try:
+                    minutes_since_motion = (now - datetime.fromisoformat(last_motion_str)).total_seconds() / 60
+                    is_arrival = minutes_since_motion >= 10
+                except (ValueError, TypeError):
+                    is_arrival = True
+            else:
+                is_arrival = True  # No previous motion record = first arrival
+            if not last_known_occupied:
+                is_arrival = True  # Room was empty = definitely arrival
+
         if motion_detected:
             # Motion ON → definitely occupied
             person_detected = True
@@ -515,7 +536,8 @@ class JarvisCLI:
             context_inference,
             suggestions,
             recent_decisions,
-            confidence_threshold=self.config.confidence_threshold
+            confidence_threshold=self.config.confidence_threshold,
+            is_arrival=is_arrival
         )
 
         # Build activity timeline from recent observations
@@ -899,6 +921,14 @@ class JarvisCLI:
         # Record the sent suggestion
         life_context.record_sent_suggestion(room, suggestion, message_text)
 
+        # Write to daily activity log (for main clawdbot context sharing)
+        self.activity_log.log_message(
+            room=room,
+            message=message_text or "",
+            action=suggestion.get("action"),
+            context=suggestion.get("type")
+        )
+
         logger.info(
             "suggestion_sent_recorded",
             room=room,
@@ -1068,10 +1098,28 @@ class JarvisCLI:
                 "hint": "Event collector might not be running. Check launchctl list | grep jarvis-collector"
             }, indent=2))
 
+    def cmd_activity(self):
+        """Show today's Jarvis activity log.
+
+        Usage: jarvis.py activity
+
+        Returns JSON array of messages Jarvis sent today, for context sharing
+        with the main clawdbot conversation.
+        """
+        entries = self.activity_log.get_today()
+        # Filter to messages only (skip silence entries for brevity)
+        messages = [e for e in entries if e.get("type") == "message"]
+        print(json.dumps({
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "message_count": len(messages),
+            "messages": messages
+        }, indent=2))
+
     def cmd_cleanup(self):
-        """Delete old snapshots."""
+        """Delete old snapshots and activity logs."""
         self.snapshot_service.cleanup_old_snapshots(days=1)
-        print(json.dumps({"cleaned": True}))
+        removed_logs = self.activity_log.cleanup(keep_days=1)
+        print(json.dumps({"cleaned": True, "activity_logs_removed": removed_logs}))
 
     def cmd_setup(self):
         """Self-register with Clawdbot."""

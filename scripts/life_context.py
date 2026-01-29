@@ -764,7 +764,8 @@ def should_stay_silent(
     context: dict,
     suggestions: list,
     recent_history: list,
-    confidence_threshold: float = 0.5
+    confidence_threshold: float = 0.5,
+    is_arrival: bool = False
 ) -> tuple[bool, str]:
     """
     Determine if Jarvis should stay silent or speak.
@@ -772,6 +773,7 @@ def should_stay_silent(
     Returns (should_be_silent, reason)
 
     SPEAK if:
+    - Person just arrived (new or re-arrival after motion gap) AND suggestions available
     - Context just changed (confidence > 0.7) AND suggestions available
     - Safety/security issue detected
     - User explicitly requested check
@@ -788,6 +790,8 @@ def should_stay_silent(
         context: Context inference result dict
         suggestions: List of generated suggestions
         recent_history: Recent decision/observation history
+        confidence_threshold: Minimum confidence to speak
+        is_arrival: True if person just arrived/re-arrived in room
 
     Returns:
         Tuple of (should_be_silent, reason_string)
@@ -795,6 +799,11 @@ def should_stay_silent(
     ctx_name = context.get("context", "unknown")
     confidence = context.get("confidence", 0)
     previous_context = context.get("previous_context")
+
+    # Rule 0: Arrival bypass - always suggest when someone enters/re-enters
+    # Still requires at least one suggestion to exist
+    if is_arrival and suggestions:
+        return False, f"Arrival detected - welcoming with suggestion"
 
     # Rule 1: Low confidence -> stay silent
     # Use configurable threshold (defaults to 0.5, can be adjusted via UI)

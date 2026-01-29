@@ -366,10 +366,15 @@ class OccupancyService:
 
             if motion_detected:
                 # Motion detected - room is definitely occupied
+                # Check for re-arrival: motion after 10+ min gap in already-occupied room
+                minutes_since = self._minutes_since_motion(room_name)
+                is_rearival = last_occupancy and minutes_since is not None and minutes_since >= 10
+                is_new_arrival = not last_occupancy
+
                 self._update_last_motion(room_name)
                 current_occupancy[room_name] = True
 
-                if not last_occupancy:
+                if is_new_arrival:
                     # Transition: empty → occupied
                     transition = {
                         "room": room_name,
@@ -384,9 +389,12 @@ class OccupancyService:
                 # Update state to occupied
                 self.state_manager.update_occupancy(room_name, True)
 
-                # Notify context service
-                if self.context_service and not last_occupancy:
-                    self.context_service.on_transition(room_name, False, True)
+                # Notify context service on arrival or re-arrival
+                if self.context_service and (is_new_arrival or is_rearival):
+                    if is_rearival:
+                        logger.info("room_rearival", room=room_name,
+                                   minutes_since_motion=minutes_since)
+                    self.context_service.on_transition(room_name, not is_new_arrival, True)
 
             else:
                 # Motion not detected - but this doesn't mean empty!

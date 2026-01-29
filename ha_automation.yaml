@@ -21,8 +21,7 @@ rest_command:
 
 alias: "Jarvis Motion Trigger"
 description: "Notify Jarvis when motion detected on cameras"
-mode: parallel
-max: 10
+mode: single
 
 trigger:
   - platform: state
