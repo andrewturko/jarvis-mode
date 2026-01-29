@@ -173,16 +173,21 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
     }
 
 
-def get_suggestions(context_result: dict, capabilities: dict = None, recent_actions: list = None) -> list:
+def get_suggestions(context_result: dict, capabilities: dict = None,
+                    recent_actions: list = None, home_state: dict = None) -> list:
     """
-    Generate suggestions based on inferred context and available capabilities.
+    Generate state-aware suggestions based on context and home state.
 
-    Now integrates with PatternAnalyzer for data-driven predictions.
+    Checks current home state (music playing, lights on/off) to avoid
+    suggesting things that are already active or irrelevant.
 
-    Returns list of suggestion dicts with action, reason, priority.
+    Returns list of suggestion dicts with action, reason, priority, message.
+    Each suggestion includes a pre-composed 'message' the agent can send directly.
     """
     if capabilities is None:
         capabilities = get_capabilities()
+    if home_state is None:
+        home_state = {}
 
     model = get_life_model()
     patterns = get_patterns()
@@ -191,36 +196,12 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
     needs = context_result["typical_needs"]
     time_ctx = context_result["time"]
 
+    # Current home state for filtering
+    music_playing = home_state.get("music_playing", False)
+    lights_on = home_state.get("lights_on", [])
+    media_playing = home_state.get("media_playing", [])
+
     suggestions = []
-
-    # === NEW: Query PatternAnalyzer for data-driven predictions ===
-    try:
-        from pattern_analyzer import PatternAnalyzer
-        analyzer = PatternAnalyzer()
-
-        current_context = {
-            "hour": time_ctx.get("hour", datetime.now().hour),
-            "is_weekend": time_ctx.get("is_weekend", False),
-            "recent_actions": recent_actions or []
-        }
-
-        predictions = analyzer.get_predictions(current_context)
-
-        for pred in predictions:
-            if pred["confidence"] >= 0.3:  # Only suggest if 30%+ confident
-                suggestions.append({
-                    "action": f"{pred['entity_id']} -> {pred['predicted_state']}",
-                    "entity_id": pred["entity_id"],
-                    "predicted_state": pred["predicted_state"],
-                    "reason": pred["reason"],
-                    "priority": "high" if pred["confidence"] >= 0.6 else "medium",
-                    "learned": True,
-                    "source": "pattern_analyzer",
-                    "confidence": pred["confidence"]
-                })
-    except Exception as e:
-        # PatternAnalyzer not available or no data yet - fall back to static rules
-        pass
 
     # Check file-based learned patterns (legacy)
     learned = patterns.get("learned_patterns", {}).get("patterns", {})
@@ -229,43 +210,51 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
         if pattern_key in learned:
             pattern = learned[pattern_key]
             if pattern.get("acceptance_rate", 0) > 0.5:
+                # Skip music suggestions if music already playing
+                action = pattern.get("preferred_action", "")
+                if "music" in action and music_playing:
+                    continue
                 suggestions.append({
-                    "action": pattern.get("preferred_action"),
+                    "action": action,
                     "reason": f"You usually want this during {context}",
                     "priority": "high",
                     "learned": True,
                     "source": "file_patterns",
                     "acceptance_rate": pattern["acceptance_rate"]
                 })
-    
-    # Context-specific suggestions
+
+    # Context-specific suggestions (state-aware)
     if context == "cooking":
-        # Cooking needs: background_entertainment, comfort, assistance
-        if "music" in capabilities:
-            music_caps = capabilities["music"]
+        if "music" in capabilities and not music_playing:
             suggestions.append({
                 "type": "entertainment",
                 "action": "play_cooking_music",
                 "reason": "Some background music while you cook",
-                "priority": "low"
+                "priority": "low",
+                "message": "Want some background music while you cook?"
             })
 
         if "lighting" in capabilities:
-            suggestions.append({
-                "type": "comfort",
-                "action": "kitchen_bright_lights",
-                "reason": "Bright lighting for food prep",
-                "priority": "low"
-            })
+            # Check if kitchen lights are already on
+            kitchen_lights_on = any("kitchen" in l or "counter" in l or "downlight" in l
+                                    for l in lights_on if "kitchen" in l or "counter" in l)
+            if not kitchen_lights_on:
+                suggestions.append({
+                    "type": "comfort",
+                    "action": "kitchen_bright_lights",
+                    "reason": "Bright lighting for food prep",
+                    "priority": "medium",
+                    "message": "Want me to bring up the kitchen lights?"
+                })
 
     elif context == "eating":
-        # Eating needs: comfort, entertainment, ambiance
-        if "music" in capabilities:
+        if "music" in capabilities and not music_playing:
             suggestions.append({
                 "type": "ambiance",
                 "action": "play_dining_music",
                 "reason": "Pleasant music for your meal",
-                "priority": "low"
+                "priority": "low",
+                "message": "Some music for dinner?"
             })
 
         if "lighting" in capabilities:
@@ -273,7 +262,8 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                 "type": "ambiance",
                 "action": "dim_dining_lights",
                 "reason": "Softer lighting for dining",
-                "priority": "low"
+                "priority": "low",
+                "message": "Want me to set the dining lights to something warmer?"
             })
 
     elif context == "post_meal":
@@ -286,17 +276,18 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                     "capability": "vacuum.s8",
                     "button": "button.s8_after_meals",
                     "reason": "Kitchen could use a quick clean after the meal",
-                    "priority": "medium"
+                    "priority": "medium",
+                    "message": "Want me to run the vacuum in the kitchen?"
                 })
-    
+
     elif context in ["waking_up", "morning_routine"]:
-        # Morning needs: gentle start, music, news, weather awareness
-        if "music" in capabilities:
+        if "music" in capabilities and not music_playing:
             suggestions.append({
                 "type": "ambiance",
                 "action": "play_morning_music",
                 "reason": "Some light music to start the day",
-                "priority": "low"
+                "priority": "low",
+                "message": "Morning! Want some light music to start the day?"
             })
 
         if "shades" in capabilities:
@@ -304,45 +295,67 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                 "type": "comfort",
                 "action": "open_shades",
                 "reason": "Let some natural light in",
-                "priority": "low"
+                "priority": "low",
+                "message": "Want me to open the shades?"
             })
 
-        # If weekday morning, mention vacuum opportunity when leaving
-        if "vacuum" in capabilities:
+        if "vacuum" in capabilities and not time_ctx.get("is_weekend", False):
             suggestions.append({
                 "type": "planning",
                 "action": "schedule_vacuum_departure",
                 "reason": "I can run the vacuum when you leave for work",
-                "priority": "low"
+                "priority": "low",
+                "message": "I can run the vacuum when you head out. Want me to set that up?"
             })
 
     elif context == "winding_down":
-        # Suggest entertainment if not playing
-        if "tv" in capabilities:
+        if "tv" in capabilities and not media_playing:
             suggestions.append({
                 "type": "entertainment",
                 "action": "suggest_show",
                 "reason": "Settling in for the evening",
-                "priority": "low"
+                "priority": "low",
+                "message": "Settling in for the evening? Want a show recommendation?"
             })
-        
-        # Suggest ambient lighting
+
         if "lighting" in capabilities:
+            # Suggest dim lights if no lights on, or ambient if lights already on
+            room_lights_on = len(lights_on) > 0
+            if not room_lights_on:
+                suggestions.append({
+                    "type": "comfort",
+                    "action": "evening_lights",
+                    "reason": "It's dark - some ambient lighting",
+                    "priority": "medium",
+                    "message": "It's getting dark. Want me to set some ambient lighting?"
+                })
+            else:
+                suggestions.append({
+                    "type": "comfort",
+                    "action": "dim_lights",
+                    "reason": "Evening ambiance",
+                    "priority": "low",
+                    "message": "Want me to dim the lights for the evening?"
+                })
+
+        if "music" in capabilities and not music_playing:
             suggestions.append({
-                "type": "comfort",
-                "action": "dim_lights",
-                "reason": "Evening ambiance",
-                "priority": "low"
+                "type": "ambiance",
+                "action": "play_evening_music",
+                "reason": "Relaxing music for the evening",
+                "priority": "low",
+                "message": "Want some relaxing music for the evening?"
             })
-    
+
     elif context == "going_to_bed":
         suggestions.append({
             "type": "transition",
             "action": "goodnight_routine",
             "reason": "Prepare the house for sleep",
-            "priority": "medium"
+            "priority": "medium",
+            "message": "Ready for bed? I can turn everything off and set the house to night mode."
         })
-    
+
     elif context == "away":
         if "vacuum" in capabilities:
             suggestions.append({
@@ -351,9 +364,10 @@ def get_suggestions(context_result: dict, capabilities: dict = None, recent_acti
                 "capability": "vacuum.s8",
                 "button": "button.s8_full_cleaning",
                 "reason": "Good time to clean while nobody's home",
-                "priority": "medium"
+                "priority": "medium",
+                "message": "Nobody's home - want me to run a full clean?"
             })
-    
+
     return suggestions
 
 
@@ -592,7 +606,8 @@ def was_suggestion_sent_recently(suggestion_action: str, hours: int = 2) -> bool
 def should_stay_silent(
     context: dict,
     suggestions: list,
-    recent_history: list
+    recent_history: list,
+    confidence_threshold: float = 0.5
 ) -> tuple[bool, str]:
     """
     Determine if Jarvis should stay silent or speak.
@@ -625,9 +640,9 @@ def should_stay_silent(
     previous_context = context.get("previous_context")
 
     # Rule 1: Low confidence -> stay silent
-    # Threshold lowered from 0.5 to 0.25 to allow more contexts through
-    if confidence < 0.25:
-        return True, f"Low confidence ({confidence:.2f})"
+    # Use configurable threshold (defaults to 0.5, can be adjusted via UI)
+    if confidence < confidence_threshold:
+        return True, f"Low confidence ({confidence:.2f} < {confidence_threshold})"
 
     # Rule 2: No suggestions -> stay silent
     if not suggestions:

@@ -121,6 +121,26 @@ class JarvisCLI:
         else:
             return None
 
+    def _get_recommended_message(self, suggestions: list, should_be_silent: bool) -> str:
+        """
+        Get a pre-composed recommended message for the agent to send.
+
+        Returns the message from the highest-priority suggestion, or None if silent.
+        """
+        if should_be_silent or not suggestions:
+            return None
+
+        # Sort by priority: high > medium > low
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        sorted_suggestions = sorted(
+            suggestions,
+            key=lambda s: priority_order.get(s.get("priority", "low"), 2)
+        )
+
+        # Return the pre-composed message from the best suggestion
+        best = sorted_suggestions[0]
+        return best.get("message") or best.get("reason", "")
+
     def _occupancy_note(self, source: str, has_snapshot: bool) -> str:
         """Generate context-aware note about occupancy verification status."""
         if source == "motion_on":
@@ -438,9 +458,17 @@ class JarvisCLI:
         # Infer life context
         context_inference = life_context.infer_context(room_observations, home_state)
 
-        # Get suggestions based on inferred context
+        # Get suggestions based on inferred context + current home state
         capabilities = life_context.get_capabilities()
-        suggestions = life_context.get_suggestions(context_inference, capabilities)
+        # Pass home_state so suggestions are state-aware (skip music if playing, etc.)
+        suggestion_home_state = {
+            "music_playing": len(home_state.get("media_playing", [])) > 0,
+            "lights_on": room_lights,  # Room-specific lights, not whole-house
+            "media_playing": home_state.get("media_playing", [])
+        }
+        suggestions = life_context.get_suggestions(
+            context_inference, capabilities, home_state=suggestion_home_state
+        )
 
         # Filter out suggestions already sent recently (prevents duplicate messages)
         recently_sent = life_context.get_recently_sent_suggestions(hours=2)
@@ -486,7 +514,8 @@ class JarvisCLI:
         should_be_silent, silence_reason = life_context.should_stay_silent(
             context_inference,
             suggestions,
-            recent_decisions
+            recent_decisions,
+            confidence_threshold=self.config.confidence_threshold
         )
 
         # Build activity timeline from recent observations
@@ -571,7 +600,9 @@ class JarvisCLI:
                 "last_decision_time": last_decision.get("timestamp") if last_decision else None,
                 "last_decision": last_decision.get("decision") if last_decision else None,
                 "quiet_mode": self.config.quiet_mode,
-                "auto_actions_enabled": self.config.auto_actions.enabled
+                "auto_actions_enabled": self.config.auto_actions.enabled,
+                "recommended_message": self._get_recommended_message(suggestions, should_be_silent),
+                "recommended_action": suggestions[0].get("action") if suggestions and not should_be_silent else None
             }
         }
 
@@ -622,6 +653,39 @@ class JarvisCLI:
             suggestions_count=len(suggestions),
             trigger=trigger
         )
+
+        # Print concise action directive BEFORE JSON so the agent sees it first
+        recommended_msg = context.get("decision_context", {}).get("recommended_message")
+        should_speak = context.get("decision_context", {}).get("should_speak", False)
+
+        if should_speak and recommended_msg and suggestions:
+            best_suggestion = suggestions[0]
+            print("=" * 60)
+            print("ACTION REQUIRED: SEND MESSAGE TO USER")
+            print(f"Room: {room}")
+            print(f"Message: {recommended_msg}")
+            print(f"Action: {best_suggestion.get('action', 'unknown')}")
+            print(f"Priority: {best_suggestion.get('priority', 'medium')}")
+            print()
+            sent_json = json.dumps({
+                "action": best_suggestion.get("action"),
+                "type": best_suggestion.get("type", "comfort")
+            })
+            print(f'After sending, record: jarvis.py sent {room} \'{sent_json}\' "{recommended_msg}"')
+            print("=" * 60)
+            print()
+        elif should_speak and not suggestions:
+            print("=" * 60)
+            print(f"CONTEXT: Room {room} - should speak but no actionable suggestions.")
+            print("You may compose a brief, friendly observation if appropriate.")
+            print("=" * 60)
+            print()
+        else:
+            print("=" * 60)
+            silence_reason = context.get("decision_context", {}).get("silence_reason", "unknown")
+            print(f"NO ACTION NEEDED: {silence_reason}")
+            print("=" * 60)
+            print()
 
         print(json.dumps(context, indent=2))
 
@@ -1140,6 +1204,7 @@ def get_status():
         "motionAware": config.motion_aware,
         "instantAlerts": config.instant_alerts,
         "quietMode": config.quiet_mode,
+        "confidenceThreshold": config.confidence_threshold,
         "autoActions": {"enabled": config.auto_actions.enabled},
         "lastPoll": state.get("last_poll"),
         "cameras": list(config.get_enabled_cameras().keys()),
@@ -1159,6 +1224,7 @@ def get_config():
         "motionAware": config.motion_aware,
         "instantAlerts": config.instant_alerts,
         "quietMode": config.quiet_mode,
+        "confidenceThreshold": config.confidence_threshold,
         "autoActions": {"enabled": config.auto_actions.enabled},
         "activeHours": {
             "start": config.active_hours.start,

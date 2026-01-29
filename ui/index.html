@@ -812,6 +812,13 @@
             </div>
             <div class="setting-row">
                 <div>
+                    <div class="setting-label">Confidence Threshold</div>
+                    <div class="setting-desc">Minimum confidence (0.0-1.0) required for Jarvis to speak</div>
+                </div>
+                <input type="number" class="setting-input" id="confidenceThresholdInput" value="0.5" min="0" max="1" step="0.05" style="width: 80px;" onchange="updateSetting('confidenceThreshold', parseFloat(this.value))">
+            </div>
+            <div class="setting-row">
+                <div>
                     <div class="setting-label">Active Hours</div>
                     <div class="setting-desc">Only observe during these hours (0-24)</div>
                 </div>
@@ -944,7 +951,8 @@
             document.getElementById('intervalInput').value = status.checkInterval || 5;
             document.getElementById('cooldownInput').value = status.cooldown;
             document.getElementById('motionCooldownInput').value = status.motionCooldown || 10;
-            
+            document.getElementById('confidenceThresholdInput').value = status.confidenceThreshold !== undefined ? status.confidenceThreshold : 0.5;
+
             // Update active hours
             if (status.activeHoursConfig) {
                 document.getElementById('startHour').value = status.activeHoursConfig.start !== undefined ? status.activeHoursConfig.start : 0;
@@ -1295,15 +1303,22 @@
 
         async function updateSetting(key, value) {
             try {
-                await fetch('/api/setting', {
+                console.log(`Updating setting: ${key} = ${value}`);
+                const response = await fetch('/api/setting', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({key, value})
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+                const result = await response.json();
+                console.log('Setting update response:', result);
                 status[key] = value;
                 showToast('Setting updated');
             } catch (e) {
-                showToast('Error updating setting');
+                console.error('Error updating setting:', e);
+                showToast(`Error updating setting: ${e.message}`);
             }
         }
 

@@ -83,6 +83,7 @@ class JarvisConfig:
     cameras: Dict[str, CameraConfig] = field(default_factory=dict)
     suggestions: SuggestionsConfig = field(default_factory=SuggestionsConfig)
     notify_channel: str = "telegram"
+    confidence_threshold: float = 0.5
 
     def __post_init__(self):
         """Validate configuration after initialization."""
