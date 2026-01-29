@@ -23,7 +23,8 @@
       "signals": [
         "kitchen_activity",
         "morning_hours",
-        "multiple_room_transitions"
+        "multiple_room_transitions",
+        "chain_morning_flow"
       ],
       "typical_needs": [
         "comfort",
@@ -40,7 +41,8 @@
       "signals": [
         "no_motion_all_rooms",
         "door_activity",
-        "typical_departure_time"
+        "typical_departure_time",
+        "chain_left_home"
       ],
       "typical_needs": [
         "security",
@@ -55,7 +57,8 @@
       "description": "Nobody home",
       "signals": [
         "extended_no_motion",
-        "all_rooms_empty"
+        "all_rooms_empty",
+        "chain_left_home"
       ],
       "typical_needs": [
         "security",
@@ -124,7 +127,8 @@
         "dining_area_presence",
         "meal_time_hours",
         "post_cooking",
-        "stationary_in_dining"
+        "stationary_in_dining",
+        "chain_cooking_then_dining"
       ],
       "typical_needs": [
         "comfort",
@@ -140,7 +144,10 @@
       "signals": [
         "left_dining_area",
         "post_meal_time",
-        "kitchen_brief_return"
+        "kitchen_brief_return",
+        "chain_post_meal",
+        "chain_cooking_then_empty_kitchen",
+        "chain_full_meal_flow"
       ],
       "typical_needs": [
         "cleanliness",
@@ -159,7 +166,9 @@
         "living_room_presence",
         "evening_hours",
         "stationary",
-        "tv_or_couch"
+        "tv_or_couch",
+        "chain_winding_down",
+        "chain_full_meal_flow"
       ],
       "typical_needs": [
         "entertainment",
@@ -176,7 +185,9 @@
         "late_evening",
         "bedroom_transition",
         "living_room_empty",
-        "lights_dimming"
+        "lights_dimming",
+        "chain_winding_down",
+        "chain_bedroom_after_evening"
       ],
       "typical_needs": [
         "transition",
