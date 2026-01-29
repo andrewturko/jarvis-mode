@@ -3,7 +3,10 @@
 Life Context Engine
 Infers life context from observations, learns patterns, suggests actions.
 
-Now integrates with PatternAnalyzer for learned behavioral predictions.
+Integrates with:
+- PatternAnalyzer for learned behavioral predictions
+- TemporalLearner for adaptive time-based context probabilities
+  (replaces hardcoded time rules like is_meal_time)
 """
 
 import json
@@ -13,8 +16,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-# Add services to path for pattern analyzer
+# Add services to path for pattern analyzer and temporal learner
 sys.path.insert(0, str(Path(__file__).parent / "services"))
+
+# Temporal learner — adaptive time-based probabilities
+try:
+    from temporal_learner import (
+        get_temporal_score,
+        record_observation as record_temporal_observation,
+    )
+    TEMPORAL_LEARNING_AVAILABLE = True
+except ImportError:
+    TEMPORAL_LEARNING_AVAILABLE = False
 
 SKILL_DIR = Path(__file__).parent.parent
 LIFE_MODEL_FILE = SKILL_DIR / "life-model.json"
@@ -53,10 +66,25 @@ def save_patterns(patterns):
 
 
 def get_time_context():
-    """Get time-based context signals."""
+    """Get time-based context signals.
+    
+    Note: is_meal_time is now computed by the temporal learner from real
+    observations instead of hardcoded hours. The field is kept for backward
+    compatibility but derived from learned probabilities.
+    """
     now = datetime.now()
     hour = now.hour
-    
+
+    # Use learned temporal probability for meal time instead of hardcoded hours.
+    # Threshold: if "eating" is >2x more likely than average at this hour,
+    # we consider it a plausible meal time.
+    if TEMPORAL_LEARNING_AVAILABLE:
+        eating_score = get_temporal_score("eating", hour)
+        is_meal_time = eating_score > 2.0
+    else:
+        # Fallback to old hardcoded rule if temporal learner unavailable
+        is_meal_time = hour in [7, 8, 12, 13, 18, 19, 20]
+
     return {
         "hour": hour,
         "time_of_day": (
@@ -70,7 +98,7 @@ def get_time_context():
             "night"
         ),
         "is_morning": 6 <= hour < 11,
-        "is_meal_time": hour in [7, 8, 12, 13, 18, 19, 20],
+        "is_meal_time": is_meal_time,
         "is_evening": 17 <= hour < 23,
         "is_late_night": hour >= 23 or hour < 6,
         "is_work_hours": 9 <= hour < 17,
@@ -148,7 +176,22 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
         ctx_signals = ctx_def.get("signals", [])
         matches = sum(1 for s in ctx_signals if s in signals)
         if matches > 0:
-            context_scores[ctx_name] = matches / len(ctx_signals) if ctx_signals else 0
+            raw_score = matches / len(ctx_signals) if ctx_signals else 0
+
+            # Apply temporal learning: multiply by learned time-of-day score.
+            # This replaces hardcoded time gates — contexts that rarely happen
+            # at this hour get dampened, frequent ones get boosted.
+            if TEMPORAL_LEARNING_AVAILABLE:
+                temporal_mult = get_temporal_score(ctx_name, time_ctx["hour"])
+                # Blend: weighted average of raw score and temporally-adjusted score.
+                # 70% temporal, 30% raw — lets signals still matter but time dominates.
+                adjusted_score = raw_score * (0.3 + 0.7 * (temporal_mult / max(temporal_mult, 1.0)))
+                # If temporal strongly disagrees (< 0.3x), dampen more aggressively
+                if temporal_mult < 0.3:
+                    adjusted_score = raw_score * temporal_mult
+                context_scores[ctx_name] = adjusted_score
+            else:
+                context_scores[ctx_name] = raw_score
     
     # Find best match
     if context_scores:
@@ -248,7 +291,10 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                 })
 
     elif context == "eating":
-        if "music" in capabilities and not music_playing and time_ctx["is_meal_time"]:
+        # No hardcoded is_meal_time gate — the temporal learner already dampened
+        # the "eating" context score at implausible hours, so if we're here,
+        # the system believes it's actually mealtime based on learned patterns.
+        if "music" in capabilities and not music_playing:
             suggestions.append({
                 "type": "ambiance",
                 "action": "play_dining_music",
@@ -372,7 +418,11 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
 
 
 def record_observation(context: str, room: str, observation: dict):
-    """Record an observation for pattern learning."""
+    """Record an observation for pattern learning.
+    
+    Also feeds the temporal learner when a context is observed
+    with sufficient confidence.
+    """
     patterns = get_patterns()
     
     history = patterns.get("context_observations", {}).get("history", [])
@@ -387,9 +437,18 @@ def record_observation(context: str, room: str, observation: dict):
     patterns["context_observations"]["history"] = history[-100:]
     save_patterns(patterns)
 
+    # --- Temporal learning: record high-confidence context observations ---
+    confidence = observation.get("confidence", 0)
+    if confidence >= 0.5 and TEMPORAL_LEARNING_AVAILABLE:
+        record_temporal_observation(context, positive=True)
+
 
 def record_suggestion_response(suggestion: dict, accepted: bool):
-    """Record whether a suggestion was accepted for learning."""
+    """Record whether a suggestion was accepted for learning.
+    
+    Also records a temporal observation so the temporal learner
+    knows when contexts are confirmed or rejected.
+    """
     patterns = get_patterns()
     
     # Record in history
@@ -424,6 +483,11 @@ def record_suggestion_response(suggestion: dict, accepted: bool):
         learned[pattern_key]["acceptance_rate"] = round(acc / total, 2) if total > 0 else 0
     
     save_patterns(patterns)
+
+    # --- Temporal learning: record when contexts are confirmed/rejected ---
+    context_name = suggestion.get("context")
+    if context_name and TEMPORAL_LEARNING_AVAILABLE:
+        record_temporal_observation(context_name, positive=accepted)
 
 
 def record_sent_suggestion(room: str, suggestion: dict, message_sent: str = None, context: str = None):
