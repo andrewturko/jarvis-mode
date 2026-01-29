@@ -2,167 +2,391 @@
   "contexts": {
     "waking_up": {
       "description": "Just woke up, starting the day",
-      "signals": ["first_motion_after_night", "bedroom_to_kitchen", "morning_hours"],
-      "typical_needs": ["comfort", "information", "energy"],
-      "transitions_to": ["morning_routine", "leaving_home", "working"]
+      "signals": [
+        "first_motion_after_night",
+        "bedroom_to_kitchen",
+        "morning_hours"
+      ],
+      "typical_needs": [
+        "comfort",
+        "information",
+        "energy"
+      ],
+      "transitions_to": [
+        "morning_routine",
+        "leaving_home",
+        "working"
+      ]
     },
     "morning_routine": {
       "description": "Getting ready, breakfast, coffee",
-      "signals": ["kitchen_activity", "morning_hours", "multiple_room_transitions"],
-      "typical_needs": ["comfort", "background_entertainment", "information"],
-      "transitions_to": ["leaving_home", "working"]
+      "signals": [
+        "kitchen_activity",
+        "morning_hours",
+        "multiple_room_transitions"
+      ],
+      "typical_needs": [
+        "comfort",
+        "background_entertainment",
+        "information"
+      ],
+      "transitions_to": [
+        "leaving_home",
+        "working"
+      ]
     },
     "leaving_home": {
       "description": "About to leave or just left",
-      "signals": ["no_motion_all_rooms", "door_activity", "typical_departure_time"],
-      "typical_needs": ["security", "efficiency", "transition"],
-      "transitions_to": ["away"]
+      "signals": [
+        "no_motion_all_rooms",
+        "door_activity",
+        "typical_departure_time"
+      ],
+      "typical_needs": [
+        "security",
+        "efficiency",
+        "transition"
+      ],
+      "transitions_to": [
+        "away"
+      ]
     },
     "away": {
       "description": "Nobody home",
-      "signals": ["extended_no_motion", "all_rooms_empty"],
-      "typical_needs": ["security", "efficiency", "cleanliness"],
-      "transitions_to": ["arriving_home"]
+      "signals": [
+        "extended_no_motion",
+        "all_rooms_empty"
+      ],
+      "typical_needs": [
+        "security",
+        "efficiency",
+        "cleanliness"
+      ],
+      "transitions_to": [
+        "arriving_home"
+      ]
     },
     "arriving_home": {
       "description": "Just got home",
-      "signals": ["first_motion_after_away", "door_activity", "typical_arrival_time"],
-      "typical_needs": ["comfort", "transition", "information"],
-      "transitions_to": ["cooking", "winding_down", "working"]
+      "signals": [
+        "first_motion_after_away",
+        "door_activity",
+        "typical_arrival_time"
+      ],
+      "typical_needs": [
+        "comfort",
+        "transition",
+        "information"
+      ],
+      "transitions_to": [
+        "cooking",
+        "winding_down",
+        "working"
+      ]
     },
     "working": {
       "description": "Working from home, focused",
-      "signals": ["office_or_desk_presence", "daytime_hours", "minimal_movement"],
-      "typical_needs": ["focus", "comfort", "minimal_interruption"],
-      "transitions_to": ["break", "cooking", "winding_down"]
+      "signals": [
+        "office_or_desk_presence",
+        "daytime_hours",
+        "minimal_movement"
+      ],
+      "typical_needs": [
+        "focus",
+        "comfort",
+        "minimal_interruption"
+      ],
+      "transitions_to": [
+        "break",
+        "cooking",
+        "winding_down"
+      ]
     },
     "cooking": {
       "description": "Preparing food",
-      "signals": ["kitchen_presence", "extended_kitchen_activity", "meal_time_hours"],
-      "typical_needs": ["background_entertainment", "comfort", "assistance"],
-      "transitions_to": ["eating"]
+      "signals": [
+        "kitchen_presence",
+        "extended_kitchen_activity",
+        "meal_time_hours"
+      ],
+      "typical_needs": [
+        "background_entertainment",
+        "comfort",
+        "assistance"
+      ],
+      "transitions_to": [
+        "eating"
+      ]
     },
     "eating": {
       "description": "Having a meal",
-      "signals": ["dining_area_presence", "post_cooking", "stationary_in_dining"],
-      "typical_needs": ["comfort", "entertainment", "ambiance"],
-      "transitions_to": ["post_meal"]
+      "signals": [
+        "dining_area_presence",
+        "meal_time_hours",
+        "post_cooking",
+        "stationary_in_dining"
+      ],
+      "typical_needs": [
+        "comfort",
+        "entertainment",
+        "ambiance"
+      ],
+      "transitions_to": [
+        "post_meal"
+      ]
     },
     "post_meal": {
       "description": "Just finished eating",
-      "signals": ["left_dining_area", "post_meal_time", "kitchen_brief_return"],
-      "typical_needs": ["cleanliness", "transition", "comfort"],
-      "transitions_to": ["winding_down", "working", "going_out"]
+      "signals": [
+        "left_dining_area",
+        "post_meal_time",
+        "kitchen_brief_return"
+      ],
+      "typical_needs": [
+        "cleanliness",
+        "transition",
+        "comfort"
+      ],
+      "transitions_to": [
+        "winding_down",
+        "working",
+        "going_out"
+      ]
     },
     "winding_down": {
       "description": "Evening relaxation",
-      "signals": ["living_room_presence", "evening_hours", "stationary", "tv_or_couch"],
-      "typical_needs": ["entertainment", "comfort", "ambiance"],
-      "transitions_to": ["going_to_bed"]
+      "signals": [
+        "living_room_presence",
+        "evening_hours",
+        "stationary",
+        "tv_or_couch"
+      ],
+      "typical_needs": [
+        "entertainment",
+        "comfort",
+        "ambiance"
+      ],
+      "transitions_to": [
+        "going_to_bed"
+      ]
     },
     "going_to_bed": {
       "description": "Preparing to sleep",
-      "signals": ["late_evening", "bedroom_transition", "living_room_empty", "lights_dimming"],
-      "typical_needs": ["transition", "security", "quiet"],
-      "transitions_to": ["sleeping"]
+      "signals": [
+        "late_evening",
+        "bedroom_transition",
+        "living_room_empty",
+        "lights_dimming"
+      ],
+      "typical_needs": [
+        "transition",
+        "security",
+        "quiet"
+      ],
+      "transitions_to": [
+        "sleeping"
+      ]
     },
     "sleeping": {
       "description": "Asleep",
-      "signals": ["night_hours", "no_motion", "bedroom_last_activity"],
-      "typical_needs": ["quiet", "security", "comfort"],
-      "transitions_to": ["waking_up"]
+      "signals": [
+        "night_hours",
+        "no_motion",
+        "bedroom_last_activity"
+      ],
+      "typical_needs": [
+        "quiet",
+        "security",
+        "comfort"
+      ],
+      "transitions_to": [
+        "waking_up"
+      ]
     },
     "guests_over": {
       "description": "Entertaining guests",
-      "signals": ["multiple_people_detected", "social_gathering_indicators"],
-      "typical_needs": ["ambiance", "entertainment", "hospitality"],
-      "transitions_to": ["winding_down", "post_meal"]
+      "signals": [
+        "multiple_people_detected",
+        "social_gathering_indicators"
+      ],
+      "typical_needs": [
+        "ambiance",
+        "entertainment",
+        "hospitality"
+      ],
+      "transitions_to": [
+        "winding_down",
+        "post_meal"
+      ]
     }
   },
-  
   "needs": {
     "comfort": {
       "description": "Physical comfort - lighting, temperature, ambiance",
-      "capability_types": ["lighting", "climate", "shades"]
+      "capability_types": [
+        "lighting",
+        "climate",
+        "shades"
+      ]
     },
     "entertainment": {
       "description": "Active entertainment - TV, music",
-      "capability_types": ["tv", "music"]
+      "capability_types": [
+        "tv",
+        "music"
+      ]
     },
     "background_entertainment": {
       "description": "Non-intrusive entertainment while doing other things",
-      "capability_types": ["music"]
+      "capability_types": [
+        "music"
+      ]
     },
     "cleanliness": {
       "description": "Keeping spaces clean and tidy",
-      "capability_types": ["vacuum", "appliances"]
+      "capability_types": [
+        "vacuum",
+        "appliances"
+      ]
     },
     "focus": {
       "description": "Minimizing distractions for work or concentration",
-      "capability_types": ["lighting", "climate", "do_not_disturb"]
+      "capability_types": [
+        "lighting",
+        "climate",
+        "do_not_disturb"
+      ]
     },
     "transition": {
       "description": "Preparing the environment for the next context",
-      "capability_types": ["lighting", "climate", "appliances", "security"]
+      "capability_types": [
+        "lighting",
+        "climate",
+        "appliances",
+        "security"
+      ]
     },
     "security": {
       "description": "Safety and peace of mind",
-      "capability_types": ["locks", "cameras", "lights_exterior"]
+      "capability_types": [
+        "locks",
+        "cameras",
+        "lights_exterior"
+      ]
     },
     "efficiency": {
       "description": "Not wasting energy or resources",
-      "capability_types": ["lighting", "climate", "appliances"]
+      "capability_types": [
+        "lighting",
+        "climate",
+        "appliances"
+      ]
     },
     "information": {
       "description": "Awareness of schedule, weather, news",
-      "capability_types": ["notifications", "displays"]
+      "capability_types": [
+        "notifications",
+        "displays"
+      ]
     },
     "ambiance": {
       "description": "Setting a mood for the space",
-      "capability_types": ["lighting", "music", "shades"]
+      "capability_types": [
+        "lighting",
+        "music",
+        "shades"
+      ]
     },
     "quiet": {
       "description": "Minimal noise and disturbance",
-      "capability_types": ["music", "tv", "notifications"]
+      "capability_types": [
+        "music",
+        "tv",
+        "notifications"
+      ]
     },
     "hospitality": {
       "description": "Making guests comfortable",
-      "capability_types": ["lighting", "music", "climate"]
+      "capability_types": [
+        "lighting",
+        "music",
+        "climate"
+      ]
     }
   },
-
   "capability_types": {
     "lighting": {
       "description": "Control of lights and light scenes",
-      "actions": ["turn_on", "turn_off", "dim", "set_scene", "adjust_color"]
+      "actions": [
+        "turn_on",
+        "turn_off",
+        "dim",
+        "set_scene",
+        "adjust_color"
+      ]
     },
     "music": {
       "description": "Audio playback",
-      "actions": ["play", "pause", "set_volume", "select_playlist", "select_station"]
+      "actions": [
+        "play",
+        "pause",
+        "set_volume",
+        "select_playlist",
+        "select_station"
+      ]
     },
     "tv": {
       "description": "Television and video content",
-      "actions": ["turn_on", "turn_off", "select_source", "select_app", "suggest_content"]
+      "actions": [
+        "turn_on",
+        "turn_off",
+        "select_source",
+        "select_app",
+        "suggest_content"
+      ]
     },
     "climate": {
       "description": "Temperature and HVAC",
-      "actions": ["set_temperature", "set_mode", "adjust"]
+      "actions": [
+        "set_temperature",
+        "set_mode",
+        "adjust"
+      ]
     },
     "vacuum": {
       "description": "Robot vacuum cleaning",
-      "actions": ["clean_room", "clean_area", "full_clean", "return_home"]
+      "actions": [
+        "clean_room",
+        "clean_area",
+        "full_clean",
+        "return_home"
+      ]
     },
     "shades": {
       "description": "Window coverings",
-      "actions": ["open", "close", "set_position"]
+      "actions": [
+        "open",
+        "close",
+        "set_position"
+      ]
     },
     "appliances": {
       "description": "Smart appliances",
-      "actions": ["start", "stop", "check_status"]
+      "actions": [
+        "start",
+        "stop",
+        "check_status"
+      ]
     },
     "security": {
       "description": "Locks, alarms, cameras",
-      "actions": ["lock", "unlock", "arm", "disarm", "check"]
+      "actions": [
+        "lock",
+        "unlock",
+        "arm",
+        "disarm",
+        "check"
+      ]
     }
   }
 }

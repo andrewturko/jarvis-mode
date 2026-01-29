@@ -248,7 +248,7 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                 })
 
     elif context == "eating":
-        if "music" in capabilities and not music_playing:
+        if "music" in capabilities and not music_playing and time_ctx["is_meal_time"]:
             suggestions.append({
                 "type": "ambiance",
                 "action": "play_dining_music",
