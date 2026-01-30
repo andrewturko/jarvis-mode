@@ -1,0 +1,97 @@
+{
+  "name": "Morning Routine",
+  "description": "User wakes up and moves through morning flow: bedroom -> kitchen -> living room. Should detect waking_up, then morning_routine or cooking, then winding_down or morning_routine.",
+  "initial_state": {
+    "home_state": {
+      "status": "home",
+      "last_any_motion_at": "2026-01-29T06:45:00"
+    },
+    "rooms": {
+      "primary_bedroom": {
+        "occupancy": {"current": true, "changed_at": "2026-01-28T23:00:00"},
+        "last_motion_at": "2026-01-29T06:45:00",
+        "recent_observations": []
+      },
+      "kitchen": {
+        "occupancy": {"current": false, "changed_at": "2026-01-28T22:30:00"},
+        "last_motion_at": "2026-01-28T22:30:00",
+        "recent_observations": []
+      },
+      "living_room": {
+        "occupancy": {"current": false, "changed_at": "2026-01-28T22:00:00"},
+        "last_motion_at": "2026-01-28T22:00:00",
+        "recent_observations": []
+      }
+    },
+    "decision_log": [],
+    "current_context": "sleeping"
+  },
+  "timeline": [
+    {
+      "time": "07:00",
+      "event": "motion",
+      "room": "primary_bedroom",
+      "room_observations": {
+        "primary_bedroom": {"person_detected": true, "activity_duration": 0},
+        "kitchen": {"person_detected": false},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "signals_contain": "morning_hours",
+        "should_speak": false,
+        "note": "Just woke up, low confidence likely"
+      }
+    },
+    {
+      "time": "07:10",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "primary_bedroom": {"person_detected": false},
+        "kitchen": {"person_detected": true, "activity_duration": 0},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "signals_contain": "kitchen_presence",
+        "context_one_of": ["waking_up", "morning_routine", "cooking"]
+      }
+    },
+    {
+      "time": "07:25",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "primary_bedroom": {"person_detected": false},
+        "kitchen": {"person_detected": true, "activity_duration": 15},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "signals_contain": "extended_kitchen_activity",
+        "context_one_of": ["cooking", "morning_routine"],
+        "min_confidence": 0.2
+      }
+    },
+    {
+      "time": "07:45",
+      "event": "motion",
+      "room": "living_room",
+      "room_observations": {
+        "primary_bedroom": {"person_detected": false},
+        "kitchen": {"person_detected": false},
+        "living_room": {"person_detected": true, "activity_duration": 0}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "signals_contain": "living_room_presence",
+        "context_one_of": ["morning_routine", "winding_down", "post_meal", "waking_up"]
+      }
+    }
+  ]
+}

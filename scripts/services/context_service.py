@@ -79,14 +79,16 @@ class ContextService:
     - Decision on whether to speak
     """
 
-    def __init__(self, state_manager: StateManager):
+    def __init__(self, state_manager: StateManager, confidence_threshold: float = 0.5):
         """
         Initialize context service.
 
         Args:
             state_manager: StateManager instance for state access
+            confidence_threshold: Minimum confidence to trigger suggestions
         """
         self.state_manager = state_manager
+        self.confidence_threshold = confidence_threshold
 
     def analyze_room(
         self,
@@ -265,13 +267,14 @@ class ContextService:
         confidence = context_result["confidence"]
         previous_context = context_result.get("previous_context")
 
-        # Rule 0: Arrival bypass - always suggest when someone enters/re-enters
-        if is_arrival and suggestions:
+        # Rule 0: Arrival bypass - suggest when arriving AND confidence is reasonable
+        ARRIVAL_MIN_CONFIDENCE = 0.2
+        if is_arrival and suggestions and confidence >= ARRIVAL_MIN_CONFIDENCE:
             return True, None
 
         # Rule 1: Low confidence -> stay silent
-        # Threshold lowered from 0.5 to 0.25 to allow more contexts through
-        if confidence < 0.25:
+        # Uses config threshold instead of hardcoded value
+        if confidence < self.confidence_threshold:
             return False, f"Low confidence ({confidence})"
 
         # Rule 2: No suggestions -> stay silent

@@ -2,36 +2,36 @@
   "schema_version": 1,
   "started_at": "2026-01-28T05:55:02.064754Z",
   "decisions": {
-    "total": 4,
-    "spoke": 4,
+    "total": 6,
+    "spoke": 6,
     "silent": 0,
     "silence_rate": 0.0
   },
   "suggestions": {
-    "generated": 12,
-    "offered": 8,
+    "generated": 18,
+    "offered": 12,
     "accepted": 0,
     "rejected": 0,
     "acceptance_rate": 0.0
   },
   "context": {
-    "total_inferences": 4,
-    "high_confidence": 4,
+    "total_inferences": 6,
+    "high_confidence": 6,
     "avg_confidence": 0.85,
-    "confidence_sum": 3.4
+    "confidence_sum": 5.1
   },
   "costs": {
-    "vision_api_calls": 4,
-    "total_vision_tokens": 5000,
-    "total_output_tokens": 180,
-    "estimated_usd": 0.0176
+    "vision_api_calls": 6,
+    "total_vision_tokens": 7500,
+    "total_output_tokens": 270,
+    "estimated_usd": 0.0264
   },
   "performance": {
-    "snapshot_count": 4,
-    "snapshot_duration_ms_sum": 3400,
+    "snapshot_count": 6,
+    "snapshot_duration_ms_sum": 5100,
     "avg_snapshot_ms": 850.0,
-    "inference_count": 4,
-    "inference_duration_ms_sum": 9360,
+    "inference_count": 6,
+    "inference_duration_ms_sum": 14040,
     "avg_inference_ms": 2340.0
   },
   "errors": {
@@ -70,6 +70,24 @@
     },
     {
       "timestamp": "2026-01-28T06:09:53.628405Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-29T19:48:31.745794Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T05:03:13.528490Z",
       "type": "decision",
       "room": "kitchen",
       "decision": "spoke",

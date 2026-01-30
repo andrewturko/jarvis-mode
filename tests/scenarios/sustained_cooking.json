@@ -1,0 +1,77 @@
+{
+  "name": "Sustained Cooking to Eating",
+  "description": "User spends 20 min in kitchen (cooking), then moves to dining. Should detect cooking, then eating via activity chain.",
+  "initial_state": {
+    "home_state": {
+      "status": "home",
+      "last_any_motion_at": "2026-01-29T18:30:00"
+    },
+    "rooms": {
+      "kitchen": {
+        "occupancy": {"current": true, "changed_at": "2026-01-29T18:30:00"},
+        "last_motion_at": "2026-01-29T18:30:00",
+        "recent_observations": []
+      },
+      "dining": {
+        "occupancy": {"current": false, "changed_at": "2026-01-29T17:00:00"},
+        "last_motion_at": "2026-01-29T17:00:00",
+        "recent_observations": []
+      },
+      "living_room": {
+        "occupancy": {"current": false, "changed_at": "2026-01-29T17:30:00"},
+        "last_motion_at": "2026-01-29T17:30:00",
+        "recent_observations": []
+      }
+    },
+    "decision_log": [],
+    "current_context": "unknown"
+  },
+  "timeline": [
+    {
+      "time": "18:50",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 20, "activity": "at counter"},
+        "dining": {"person_detected": false},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "context": "cooking",
+        "signals_contain": "extended_kitchen_activity",
+        "min_confidence": 0.3,
+        "has_suggestions": true,
+        "suggestion_diversity": true,
+        "note": "20 min in kitchen = cooking"
+      }
+    },
+    {
+      "time": "19:05",
+      "event": "motion",
+      "room": "dining",
+      "room_observations": {
+        "kitchen": {"person_detected": false},
+        "dining": {"person_detected": true, "activity_duration": 0},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "inject_decision_log": [
+        {
+          "timestamp": "2026-01-29T18:50:00",
+          "room": "kitchen",
+          "context_inferred": "cooking",
+          "confidence": 0.5,
+          "decision": "should_speak"
+        }
+      ],
+      "expect": {
+        "context_one_of": ["eating", "post_meal"],
+        "signals_contain": "dining_area_presence",
+        "note": "Kitchen cooking -> dining = likely eating via activity chain"
+      }
+    }
+  ]
+}

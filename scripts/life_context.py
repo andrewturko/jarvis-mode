@@ -38,11 +38,25 @@ except ImportError:
     _pref_store = None
     PREFERENCE_STORE_AVAILABLE = False
 
+# Fatigue tracker — adaptive silence based on engagement
+try:
+    from fatigue_tracker import (
+        get_cooldown_hours as _fatigue_cooldown,
+        get_dynamic_threshold as _fatigue_threshold,
+        has_budget_remaining as _fatigue_has_budget,
+        process_ignored_suggestions as _fatigue_process_ignored,
+        record_suggestion_sent as _fatigue_record_sent,
+    )
+    FATIGUE_TRACKING_AVAILABLE = True
+except ImportError:
+    FATIGUE_TRACKING_AVAILABLE = False
+
 SKILL_DIR = Path(__file__).parent.parent
 LIFE_MODEL_FILE = SKILL_DIR / "life-model.json"
 CAPABILITIES_FILE = SKILL_DIR / "capabilities.json"
 PATTERNS_FILE = SKILL_DIR / "patterns.json"
 STATE_FILE = SKILL_DIR / "state.json"
+SUGGESTION_CATALOG_FILE = SKILL_DIR / "suggestion-catalog.json"
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +394,25 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
     if last_room == "living_room" and "primary_bedroom" in occupied_rooms:
         signals.append("bedroom_transition")
     
+    # ---- Home Transition Signals ----
+    # Detect home arrival, settling period, and pass-through from state.
+    # TransitionDetector writes home_state to state.json; we read it here.
+    home_transition = state.get("home_state", {})
+    home_status = home_transition.get("status", "unknown")
+    if home_status == "away" or (home_status == "unknown" and not occupied_rooms):
+        signals.append("extended_no_motion")
+    settling_until_str = home_transition.get("settling_until")
+    if settling_until_str:
+        try:
+            settling_until = datetime.fromisoformat(settling_until_str)
+            if datetime.now() < settling_until:
+                signals.append("first_motion_after_away")
+                signals.append("settling_period")
+                if time_ctx["is_evening"]:
+                    signals.append("typical_arrival_time")
+        except (ValueError, TypeError):
+            pass
+
     # ---- Activity Chain Signals (multi-step, from decision history) ----
     # Read recent activity chain and inject derived signals so that
     # sequential patterns BOOST confidence for matching contexts.
@@ -494,153 +527,124 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                     "acceptance_rate": pattern["acceptance_rate"]
                 })
 
-    # Context-specific suggestions (state-aware)
-    if context == "cooking":
-        if "music" in capabilities and not music_playing:
-            suggestions.append({
-                "type": "entertainment",
-                "action": "play_cooking_music",
-                "reason": "Some background music while you cook",
-                "priority": "low",
-                "message": "Want some background music while you cook?"
-            })
+    # ------------------------------------------------------------------ #
+    # Catalog-driven suggestion generation with diversity weighting
+    # ------------------------------------------------------------------ #
+    import random
+    catalog = load_json(SUGGESTION_CATALOG_FILE)
+    catalog_contexts = catalog.get("contexts", {})
 
-        if "lighting" in capabilities:
-            # Check if kitchen lights are already on
-            kitchen_lights_on = any("kitchen" in l or "counter" in l or "downlight" in l
-                                    for l in lights_on if "kitchen" in l or "counter" in l)
-            if not kitchen_lights_on:
-                suggestions.append({
-                    "type": "comfort",
-                    "action": "kitchen_bright_lights",
-                    "reason": "Bright lighting for food prep",
-                    "priority": "medium",
-                    "message": "Want me to bring up the kitchen lights?"
-                })
+    # Look up context in catalog (also check waking_up -> morning_routine alias)
+    context_key = context
+    if context_key not in catalog_contexts and context in ["waking_up"]:
+        context_key = "morning_routine" if "morning_routine" in catalog_contexts else context_key
+    # For morning_routine, also include waking_up catalog entries
+    catalog_keys = [context_key]
+    if context in ["waking_up", "morning_routine"]:
+        for k in ["waking_up", "morning_routine"]:
+            if k in catalog_contexts and k not in catalog_keys:
+                catalog_keys.append(k)
 
-    elif context == "eating":
-        # No hardcoded is_meal_time gate — the temporal learner already dampened
-        # the "eating" context score at implausible hours, so if we're here,
-        # the system believes it's actually mealtime based on learned patterns.
-        if "music" in capabilities and not music_playing:
-            suggestions.append({
-                "type": "ambiance",
-                "action": "play_dining_music",
-                "reason": "Pleasant music for your meal",
-                "priority": "low",
-                "message": "Some music for dinner?"
-            })
+    catalog_entries = []
+    for ck in catalog_keys:
+        catalog_entries.extend(catalog_contexts.get(ck, {}).get("suggestions", []))
 
-        if "lighting" in capabilities:
-            suggestions.append({
-                "type": "ambiance",
-                "action": "dim_dining_lights",
-                "reason": "Softer lighting for dining",
-                "priority": "low",
-                "message": "Want me to set the dining lights to something warmer?"
-            })
+    # Filter by requirements (capabilities, home state)
+    kitchen_lights_on = any("kitchen" in l for l in lights_on)
+    room_lights_on = len(lights_on) > 0
 
-    elif context == "post_meal":
-        if "vacuum" in capabilities:
-            vacuum_caps = capabilities["vacuum"].get("devices", {})
-            if vacuum_caps:
-                suggestions.append({
-                    "type": "cleanliness",
-                    "action": "vacuum_kitchen",
-                    "capability": "vacuum.s8",
-                    "button": "button.s8_after_meals",
-                    "reason": "Kitchen could use a quick clean after the meal",
-                    "priority": "medium",
-                    "message": "Want me to run the vacuum in the kitchen?"
-                })
+    for entry in catalog_entries:
+        reqs = entry.get("requires", {})
+        cap_req = reqs.get("capability")
+        state_req = reqs.get("state")
 
-    elif context in ["waking_up", "morning_routine"]:
-        if "music" in capabilities and not music_playing:
-            suggestions.append({
-                "type": "ambiance",
-                "action": "play_morning_music",
-                "reason": "Some light music to start the day",
-                "priority": "low",
-                "message": "Morning! Want some light music to start the day?"
-            })
+        # Check capability requirement
+        if cap_req and cap_req not in capabilities:
+            continue
 
-        if "shades" in capabilities:
-            suggestions.append({
-                "type": "comfort",
-                "action": "open_shades",
-                "reason": "Let some natural light in",
-                "priority": "low",
-                "message": "Want me to open the shades?"
-            })
+        # Check state requirements
+        if state_req == "music_not_playing" and music_playing:
+            continue
+        if state_req == "media_not_playing" and media_playing:
+            continue
+        if state_req == "kitchen_lights_off" and kitchen_lights_on:
+            continue
+        if state_req == "room_lights_off" and room_lights_on:
+            continue
+        if state_req == "room_lights_on" and not room_lights_on:
+            continue
 
-        if "vacuum" in capabilities and not time_ctx.get("is_weekend", False):
-            suggestions.append({
-                "type": "planning",
-                "action": "schedule_vacuum_departure",
-                "reason": "I can run the vacuum when you leave for work",
-                "priority": "low",
-                "message": "I can run the vacuum when you head out. Want me to set that up?"
-            })
+        # Check weekday_only
+        if entry.get("weekday_only") and time_ctx.get("is_weekend", False):
+            continue
 
-    elif context == "winding_down":
-        if "tv" in capabilities and not media_playing:
-            suggestions.append({
-                "type": "entertainment",
-                "action": "suggest_show",
-                "reason": "Settling in for the evening",
-                "priority": "low",
-                "message": "Settling in for the evening? Want a show recommendation?"
-            })
+        # Pick a random example as fallback message
+        examples = entry.get("examples", [])
+        fallback_message = random.choice(examples) if examples else entry.get("action", "")
 
-        if "lighting" in capabilities:
-            # Suggest dim lights if no lights on, or ambient if lights already on
-            room_lights_on = len(lights_on) > 0
-            if not room_lights_on:
-                suggestions.append({
-                    "type": "comfort",
-                    "action": "evening_lights",
-                    "reason": "It's dark - some ambient lighting",
-                    "priority": "medium",
-                    "message": "It's getting dark. Want me to set some ambient lighting?"
-                })
-            else:
-                suggestions.append({
-                    "type": "comfort",
-                    "action": "dim_lights",
-                    "reason": "Evening ambiance",
-                    "priority": "low",
-                    "message": "Want me to dim the lights for the evening?"
-                })
+        # Determine tone based on context and time
+        tone_map = {
+            "waking_up": "warm", "morning_routine": "warm",
+            "cooking": "casual", "eating": "casual",
+            "winding_down": "warm", "going_to_bed": "brief",
+            "arriving_home": "warm", "away": "brief",
+            "post_meal": "casual",
+        }
+        tone = tone_map.get(context, "casual")
 
-        if "music" in capabilities and not music_playing:
-            suggestions.append({
-                "type": "ambiance",
-                "action": "play_evening_music",
-                "reason": "Relaxing music for the evening",
-                "priority": "low",
-                "message": "Want some relaxing music for the evening?"
-            })
+        suggestion = {
+            "type": entry.get("type", "comfort"),
+            "action": entry["action"],
+            "reason": examples[0] if examples else entry["action"],
+            "priority": entry.get("priority", "low"),
+            "message": fallback_message,
+            "intent": entry.get("intent", "offer"),
+            "base_weight": entry.get("base_weight", 1.0),
+            "cooldown_hours": entry.get("cooldown_hours", 4),
+            "examples": examples,
+            "message_template": {
+                "intent": entry.get("intent", "offer"),
+                "action": entry["action"],
+                "context": context,
+                "tone": tone,
+                "examples": examples,
+                "environmental_cues": ["time_of_day", "duration_in_room"],
+            },
+        }
+        # Carry through any extra fields (capability, button)
+        for extra_key in ["capability", "button"]:
+            if extra_key in entry:
+                suggestion[extra_key] = entry[extra_key]
 
-    elif context == "going_to_bed":
-        suggestions.append({
-            "type": "transition",
-            "action": "goodnight_routine",
-            "reason": "Prepare the house for sleep",
-            "priority": "medium",
-            "message": "Ready for bed? I can turn everything off and set the house to night mode."
-        })
+        suggestions.append(suggestion)
 
-    elif context == "away":
-        if "vacuum" in capabilities:
-            suggestions.append({
-                "type": "cleanliness",
-                "action": "full_clean",
-                "capability": "vacuum.s8",
-                "button": "button.s8_full_cleaning",
-                "reason": "Good time to clean while nobody's home",
-                "priority": "medium",
-                "message": "Nobody's home - want me to run a full clean?"
-            })
+    # Apply diversity weighting — penalize recently-used, bonus for novel
+    recently_sent = get_recently_sent_suggestions(hours=24)
+    recent_actions = [e.get("suggestion", {}).get("action") for e in recently_sent]
+    action_counts = {}
+    for a in recent_actions:
+        action_counts[a] = action_counts.get(a, 0) + 1
+
+    for s in suggestions:
+        base_w = s.get("base_weight", 1.0)
+        action = s["action"]
+        repeats = action_counts.get(action, 0)
+        if repeats > 0:
+            # Each repeat halves the weight
+            s["_effective_weight"] = base_w * (0.5 ** repeats)
+        else:
+            # Novelty bonus for never-seen suggestions
+            s["_effective_weight"] = base_w * 1.2
+
+    # Sort by effective weight (descending) then priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    suggestions.sort(
+        key=lambda s: (-s.get("_effective_weight", 1.0),
+                       priority_order.get(s.get("priority", "low"), 2))
+    )
+
+    # Select top suggestions (max 3) to avoid overwhelming
+    suggestions = suggestions[:3]
 
     # ------------------------------------------------------------------ #
     # Preference-based filtering and modification
@@ -949,23 +953,38 @@ def get_recently_sent_suggestions(hours: int = 2) -> list:
     return recent
 
 
-def was_suggestion_sent_recently(suggestion_action: str, hours: int = 2) -> bool:
+def was_suggestion_sent_recently(suggestion_action: str, hours: int = None) -> bool:
     """
     Check if a specific suggestion action was sent recently.
 
+    Uses adaptive cooldown from FatigueTracker when available.
+    Ignored suggestions get longer cooldowns (exponential backoff).
+
     Args:
         suggestion_action: The action name (e.g., "play_morning_music")
-        hours: How many hours to look back
+        hours: Override cooldown hours (None = use adaptive/default 2h)
 
     Returns:
-        True if this suggestion was sent within the time window
+        True if this suggestion was sent within the cooldown window
     """
-    recent = get_recently_sent_suggestions(hours)
+    if hours is None:
+        if FATIGUE_TRACKING_AVAILABLE:
+            hours = _fatigue_cooldown(suggestion_action)
+        else:
+            hours = 2
 
+    recent = get_recently_sent_suggestions(hours=max(int(hours) + 1, 2))
+
+    cutoff = datetime.now() - timedelta(hours=hours)
     for entry in recent:
         sent_action = entry.get("suggestion", {}).get("action")
         if sent_action == suggestion_action:
-            return True
+            try:
+                ts = datetime.fromisoformat(entry.get("timestamp", ""))
+                if ts >= cutoff:
+                    return True
+            except (ValueError, AttributeError):
+                return True  # Can't parse timestamp, assume recent
 
     return False
 
@@ -975,7 +994,8 @@ def should_stay_silent(
     suggestions: list,
     recent_history: list,
     confidence_threshold: float = 0.5,
-    is_arrival: bool = False
+    is_arrival: bool = False,
+    is_settling: bool = False
 ) -> tuple[bool, str]:
     """
     Determine if Jarvis should stay silent or speak.
@@ -983,7 +1003,7 @@ def should_stay_silent(
     Returns (should_be_silent, reason)
 
     SPEAK if:
-    - Person just arrived (new or re-arrival after motion gap) AND suggestions available
+    - Person just arrived home AND suggestions available AND confidence reasonable
     - Context just changed (confidence > 0.7) AND suggestions available
     - Safety/security issue detected
     - User explicitly requested check
@@ -991,17 +1011,19 @@ def should_stay_silent(
 
     STAY SILENT if:
     - Same context, no new suggestions
-    - Same suggestion offered < 2 hours ago
-    - Low confidence (< 0.5)
+    - Same suggestion offered recently (adaptive cooldown)
+    - Low confidence (< threshold)
     - Focus context (working, sleeping)
     - No actionable suggestions
+    - Settling period active with only activity-specific suggestions
 
     Args:
         context: Context inference result dict
         suggestions: List of generated suggestions
         recent_history: Recent decision/observation history
         confidence_threshold: Minimum confidence to speak
-        is_arrival: True if person just arrived/re-arrived in room
+        is_arrival: True if person just arrived HOME (30+ min away)
+        is_settling: True if within 5 min of home arrival
 
     Returns:
         Tuple of (should_be_silent, reason_string)
@@ -1010,22 +1032,42 @@ def should_stay_silent(
     confidence = context.get("confidence", 0)
     previous_context = context.get("previous_context")
 
-    # Rule 0: Arrival bypass - always suggest when someone enters/re-enters
-    # Still requires at least one suggestion to exist
-    if is_arrival and suggestions:
+    # Rule 0: Arrival bypass - suggest when someone arrives home AND confidence is reasonable
+    # A 0.03-confidence "arrival" is noise, not a real arrival
+    ARRIVAL_MIN_CONFIDENCE = 0.2
+    if is_arrival and suggestions and confidence >= ARRIVAL_MIN_CONFIDENCE:
         return False, f"Arrival detected - welcoming with suggestion"
 
+    # Rule 0.5: Settling period - suppress activity-specific suggestions
+    # During first 5 min after home arrival, only allow arrival/comfort/info suggestions
+    if is_settling and suggestions:
+        SETTLING_ALLOWED_TYPES = {"transition", "comfort", "information"}
+        settling_suggestions = [s for s in suggestions
+                               if s.get("type") in SETTLING_ALLOWED_TYPES]
+        if settling_suggestions:
+            return False, "Settling period - arrival suggestions only"
+        return True, "Settling period - waiting for activity to stabilize"
+
+    # Fatigue system: adjust threshold and check budget before other rules
+    effective_threshold = confidence_threshold
+    if FATIGUE_TRACKING_AVAILABLE:
+        # Budget check — if we've exhausted the daily budget, stay silent
+        if not _fatigue_has_budget():
+            return True, "Daily suggestion budget exhausted"
+        # Dynamic threshold — raise bar when engagement is low
+        dynamic = _fatigue_threshold()
+        effective_threshold = max(confidence_threshold, dynamic)
+
     # Rule 1: Low confidence -> stay silent
-    # Use configurable threshold (defaults to 0.5, can be adjusted via UI)
-    if confidence < confidence_threshold:
-        return True, f"Low confidence ({confidence:.2f} < {confidence_threshold})"
+    if confidence < effective_threshold:
+        return True, f"Low confidence ({confidence:.2f} < {effective_threshold})"
 
     # Rule 2: No suggestions -> stay silent
     if not suggestions:
         return True, "No actionable suggestions"
 
     # Rule 2.5: Filter out suggestions already SENT to user recently
-    # This prevents duplicate messages even if the decision_log shows should_speak
+    # Uses adaptive cooldown per action (longer for ignored suggestions)
     recently_sent = get_recently_sent_suggestions(hours=2)
     sent_actions = {entry.get("suggestion", {}).get("action") for entry in recently_sent}
 
@@ -1064,9 +1106,8 @@ def should_stay_silent(
         return False, "Safety or urgent issue detected"
 
     # Rule 8: Context stable with new suggestions -> speak
-    # Threshold lowered from 0.6 to 0.3 - if we passed the basic confidence check
-    # and have new suggestions, we should offer them
-    if len(new_suggestions) > 0 and confidence > 0.3:
+    # Uses the same confidence_threshold passed to this function (not hardcoded)
+    if len(new_suggestions) > 0 and confidence >= confidence_threshold:
         return False, f"New suggestions available ({confidence:.0%} confidence)"
 
     # Default: stay silent

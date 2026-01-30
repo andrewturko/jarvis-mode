@@ -1,0 +1,84 @@
+{
+  "name": "Evening Arrival",
+  "description": "User returns home after 8+ hours away. Should detect arriving_home, NOT cooking when entering kitchen. After settling period (5 min), kitchen activity should correctly infer cooking.",
+  "initial_state": {
+    "home_state": {
+      "status": "away",
+      "last_any_motion_at": "2026-01-29T09:30:00"
+    },
+    "rooms": {
+      "kitchen": {
+        "occupancy": {"current": false, "changed_at": "2026-01-29T09:30:00"},
+        "last_motion_at": "2026-01-29T09:30:00",
+        "recent_observations": []
+      },
+      "living_room": {
+        "occupancy": {"current": false, "changed_at": "2026-01-29T09:00:00"},
+        "last_motion_at": "2026-01-29T09:00:00",
+        "recent_observations": []
+      }
+    },
+    "decision_log": [],
+    "current_context": "away"
+  },
+  "timeline": [
+    {
+      "time": "18:15",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 0},
+        "living_room": {"person_detected": false}
+      },
+      "home_state_override": {
+        "status": "settling",
+        "settling_until": "18:20"
+      },
+      "is_arrival": true,
+      "is_settling": true,
+      "expect": {
+        "context": "arriving_home",
+        "should_speak": true,
+        "suggestion_types_allowed": ["transition", "comfort", "information"],
+        "suggestion_types_not": ["entertainment"]
+      }
+    },
+    {
+      "time": "18:18",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 3},
+        "living_room": {"person_detected": false}
+      },
+      "home_state_override": {
+        "status": "settling",
+        "settling_until": "18:20"
+      },
+      "is_arrival": false,
+      "is_settling": true,
+      "expect": {
+        "context_not": "cooking",
+        "suggestion_types_allowed": ["transition", "comfort", "information"]
+      },
+      "note": "Still in settling period - should NOT infer cooking, but arrival suggestions are allowed"
+    },
+    {
+      "time": "18:25",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 10, "activity": "at counter"},
+        "living_room": {"person_detected": false}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "context": "cooking",
+        "min_confidence": 0.3,
+        "has_suggestions": true
+      },
+      "note": "Settling over, extended kitchen presence = cooking"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "Confidence Threshold",
+  "description": "Low confidence context inference should stay silent. Verifies that confidence floor prevents spurious suggestions.",
+  "initial_state": {
+    "home_state": {
+      "status": "home",
+      "last_any_motion_at": "2026-01-29T14:00:00"
+    },
+    "rooms": {
+      "living_room": {
+        "occupancy": {"current": true, "changed_at": "2026-01-29T14:00:00"},
+        "last_motion_at": "2026-01-29T14:00:00",
+        "recent_observations": []
+      }
+    },
+    "decision_log": [],
+    "current_context": "unknown"
+  },
+  "timeline": [
+    {
+      "time": "14:05",
+      "event": "motion",
+      "room": "living_room",
+      "room_observations": {
+        "living_room": {"person_detected": true, "activity_duration": 5}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "max_confidence": 0.5,
+        "should_speak": false,
+        "silence_reason_contains": "confidence",
+        "note": "Living room with minimal signals = low confidence, should stay silent"
+      }
+    },
+    {
+      "time": "14:30",
+      "event": "motion",
+      "room": "living_room",
+      "room_observations": {
+        "living_room": {"person_detected": true, "activity_duration": 30, "activity": "watching tv"}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "signals_contain": "tv_or_couch",
+        "min_confidence": 0.05,
+        "should_speak": false,
+        "note": "TV signals detected but confidence still below threshold - should stay silent"
+      }
+    }
+  ]
+}

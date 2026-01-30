@@ -21,6 +21,7 @@ from core import StateManager, JarvisConfig, get_logger, setup_logging
 from services import HAService, SnapshotService, OccupancyService
 from services.context_service import ContextService
 from services.activity_log import ActivityLog
+from services.transition_detector import TransitionDetector
 
 # Handlers
 from handlers import EmptyRoomHandler, OccupiedRoomHandler
@@ -70,7 +71,8 @@ class JarvisCLI:
 
             # Initialize context service (Phase 2)
             self.context_service = ContextService(
-                state_manager=self.state_manager
+                state_manager=self.state_manager,
+                confidence_threshold=self.config.confidence_threshold
             )
 
             # Initialize occupancy service
@@ -127,23 +129,97 @@ class JarvisCLI:
 
     def _get_recommended_message(self, suggestions: list, should_be_silent: bool) -> str:
         """
-        Get a pre-composed recommended message for the agent to send.
+        Get a recommended message for the agent to send.
 
-        Returns the message from the highest-priority suggestion, or None if silent.
+        Picks a random example from the best suggestion's message_template
+        for variety. Falls back to the static 'message' field if no template.
+
+        Returns None if silent.
         """
         if should_be_silent or not suggestions:
             return None
 
-        # Sort by priority: high > medium > low
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        sorted_suggestions = sorted(
-            suggestions,
-            key=lambda s: priority_order.get(s.get("priority", "low"), 2)
-        )
+        import random
 
-        # Return the pre-composed message from the best suggestion
-        best = sorted_suggestions[0]
+        # Suggestions are already sorted by effective_weight from get_suggestions()
+        # Just take the first one
+        best = suggestions[0]
+
+        # Try message_template examples first for variety
+        template = best.get("message_template", {})
+        examples = template.get("examples", []) or best.get("examples", [])
+        if examples:
+            return random.choice(examples)
+
         return best.get("message") or best.get("reason", "")
+
+    def _build_message_generation_context(self, now: datetime, hour: int) -> dict:
+        """
+        Build context for AI-generated dynamic messaging.
+
+        Provides tone, style, and environmental cues so the agent generates
+        varied, natural-sounding messages instead of repeating static strings.
+        """
+        # Natural time description
+        if hour < 5:
+            time_natural = "late at night"
+        elif hour < 8:
+            time_natural = "early morning"
+        elif hour < 12:
+            time_natural = "this morning"
+        elif hour < 14:
+            time_natural = "around midday"
+        elif hour < 17:
+            time_natural = "this afternoon"
+        elif hour < 21:
+            time_natural = "this evening"
+        else:
+            time_natural = "tonight"
+
+        day_type = "weekend" if now.weekday() >= 5 else "weekday"
+
+        # Pull engagement data from fatigue tracker
+        interactions_today = 0
+        responsiveness = "normal"
+        try:
+            from services.fatigue_tracker import _get_fatigue_state
+            fatigue = _get_fatigue_state()
+            interactions_today = fatigue.get("suggestions_today", 0)
+            accepted = fatigue.get("accepted_today", 0)
+            sent = fatigue.get("suggestions_today", 0)
+            if sent >= 3:
+                rate = accepted / sent
+                if rate < 0.1:
+                    responsiveness = "low"
+                elif rate < 0.3:
+                    responsiveness = "moderate"
+                else:
+                    responsiveness = "high"
+        except ImportError:
+            pass
+
+        # Style guide adapts to responsiveness
+        if responsiveness == "low":
+            style = "Ultra-brief, one sentence max. Don't push — the user hasn't been engaging today."
+        elif responsiveness == "moderate":
+            style = "Brief and warm. One casual sentence."
+        else:
+            style = "Warm, conversational. Like a thoughtful roommate — natural, not robotic."
+
+        return {
+            "time_natural": time_natural,
+            "day_type": day_type,
+            "day_name": now.strftime("%A"),
+            "interactions_today": interactions_today,
+            "responsiveness": responsiveness,
+            "style": style,
+            "instructions": (
+                "Generate a UNIQUE message each time. Use the examples in message_template "
+                "as inspiration for tone and intent, but NEVER copy them verbatim. "
+                "Incorporate the time of day and context naturally. "
+                "Keep it short — one sentence, maybe two if needed."
+            )
+        }
 
     def _occupancy_note(self, source: str, has_snapshot: bool) -> str:
         """Generate context-aware note about occupancy verification status."""
@@ -407,20 +483,62 @@ class JarvisCLI:
         last_known_state = self.state_manager.get_room_state(room)
         last_known_occupied = last_known_state.get('occupancy', {}).get('current') if last_known_state else None
 
-        # Detect arrival: motion after 10+ min gap or room was empty
+        # Detect arrival: distinguish HOME arrival (confidence bypass) from ROOM arrival (normal rules)
+        # Home arrival: no motion in ANY room for 30+ min → user was away
+        # Room arrival: no motion in THIS room for 10+ min → user entered room
+        # Only home arrival bypasses the confidence threshold (Rule 0 in should_stay_silent)
         is_arrival = False
         if motion_detected:
+            # Check this room's last motion
             last_motion_str = last_known_state.get('last_motion_at') if last_known_state else None
+            is_room_arrival = False
             if last_motion_str:
                 try:
                     minutes_since_motion = (now - datetime.fromisoformat(last_motion_str)).total_seconds() / 60
-                    is_arrival = minutes_since_motion >= 10
+                    is_room_arrival = minutes_since_motion >= 10
                 except (ValueError, TypeError):
-                    is_arrival = True
+                    is_room_arrival = True
             else:
-                is_arrival = True  # No previous motion record = first arrival
+                is_room_arrival = True  # No previous motion record
             if not last_known_occupied:
-                is_arrival = True  # Room was empty = definitely arrival
+                is_room_arrival = True  # Room was empty
+
+            # Check ALL rooms' last motion to detect home-level arrival
+            # If no room had motion for 30+ min, this is a home arrival (was away)
+            HOME_AWAY_THRESHOLD_MIN = 30
+            full_state = self.state_manager.read_state()
+            all_rooms = full_state.get('rooms', {})
+            most_recent_any_motion = None
+            for r_name, r_state in all_rooms.items():
+                r_motion = r_state.get('last_motion_at')
+                if r_motion:
+                    try:
+                        r_dt = datetime.fromisoformat(r_motion)
+                        if most_recent_any_motion is None or r_dt > most_recent_any_motion:
+                            most_recent_any_motion = r_dt
+                    except (ValueError, TypeError):
+                        pass
+
+            is_home_arrival = False
+            if most_recent_any_motion:
+                minutes_since_any = (now - most_recent_any_motion).total_seconds() / 60
+                is_home_arrival = minutes_since_any >= HOME_AWAY_THRESHOLD_MIN
+            elif is_room_arrival:
+                is_home_arrival = True  # No motion records at all = first ever
+
+            # Only home arrival gets the Rule 0 confidence bypass
+            # Room arrival follows normal confidence rules
+            is_arrival = is_home_arrival
+
+            # Detect settling period via TransitionDetector
+            try:
+                transition = TransitionDetector(self.state_manager).detect(room, motion_detected)
+                is_settling = transition.settling_period_active
+                # If TransitionDetector detects home arrival, use it (may override above)
+                if transition.is_home_arrival:
+                    is_arrival = True
+            except Exception:
+                is_settling = False
 
         if motion_detected:
             # Motion ON → definitely occupied
@@ -537,7 +655,8 @@ class JarvisCLI:
             suggestions,
             recent_decisions,
             confidence_threshold=self.config.confidence_threshold,
-            is_arrival=is_arrival
+            is_arrival=is_arrival,
+            is_settling=is_settling if motion_detected else False
         )
 
         # Build activity timeline from recent observations
@@ -625,7 +744,9 @@ class JarvisCLI:
                 "auto_actions_enabled": self.config.auto_actions.enabled,
                 "recommended_message": self._get_recommended_message(suggestions, should_be_silent),
                 "recommended_action": suggestions[0].get("action") if suggestions and not should_be_silent else None
-            }
+            },
+
+            "message_generation_context": self._build_message_generation_context(now, hour)
         }
 
         # Log this decision to the audit trail (Phase 3.4)
@@ -720,6 +841,13 @@ class JarvisCLI:
         if not self.config.active_hours.is_active(datetime.now().hour):
             print(json.dumps({"polled": False, "reason": "outside active hours"}))
             sys.exit(0)
+
+        # Process ignored suggestions (soft negative signals for fatigue tracking)
+        try:
+            from services.fatigue_tracker import process_ignored_suggestions
+            process_ignored_suggestions()
+        except ImportError:
+            pass
 
         result = self.occupancy_service.poll_occupancy()
         print(json.dumps(result, indent=2))

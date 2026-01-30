@@ -1,0 +1,63 @@
+{
+  "name": "Low Engagement Day",
+  "description": "5 suggestions sent, 0 accepted. System should progressively raise threshold and reduce budget.",
+  "initial_state": {
+    "home_state": {
+      "status": "home",
+      "last_any_motion_at": "2026-01-29T18:00:00"
+    },
+    "rooms": {
+      "kitchen": {
+        "occupancy": {"current": true, "changed_at": "2026-01-29T18:00:00"},
+        "last_motion_at": "2026-01-29T18:00:00",
+        "recent_observations": []
+      }
+    },
+    "decision_log": [],
+    "current_context": "unknown"
+  },
+  "fatigue_state": {
+    "daily_budget": 8,
+    "suggestions_today": 5,
+    "accepted_today": 0,
+    "ignored_today": 5,
+    "dynamic_threshold": 0.3,
+    "backoff_multipliers": {
+      "play_cooking_music": 3.375,
+      "kitchen_bright_lights": 2.25,
+      "play_evening_music": 1.5
+    },
+    "last_reset": "2026-01-29"
+  },
+  "timeline": [
+    {
+      "time": "19:00",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 15}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "fatigue_budget_check": true,
+        "fatigue_dynamic_threshold_above": 0.5,
+        "note": "5 sent, 0 accepted -> dynamic threshold should be 0.7, budget should be halved to 4"
+      }
+    },
+    {
+      "time": "19:30",
+      "event": "motion",
+      "room": "kitchen",
+      "room_observations": {
+        "kitchen": {"person_detected": true, "activity_duration": 45}
+      },
+      "is_arrival": false,
+      "is_settling": false,
+      "expect": {
+        "fatigue_cooldown_elevated": "play_cooking_music",
+        "note": "play_cooking_music has 3.375x backoff = 6.75h cooldown instead of 2h"
+      }
+    }
+  ]
+}

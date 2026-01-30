@@ -1,0 +1,354 @@
+{
+  "_description": "Suggestion catalog - structured templates for AI-generated messaging. Examples are inspiration seeds, not scripts.",
+  "contexts": {
+    "cooking": {
+      "suggestions": [
+        {
+          "action": "play_cooking_music",
+          "type": "entertainment",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 1.0,
+          "cooldown_hours": 4,
+          "examples": [
+            "Some tunes while you cook?",
+            "Want music going in the kitchen?",
+            "Music while you're at it?"
+          ]
+        },
+        {
+          "action": "kitchen_bright_lights",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "lighting", "state": "kitchen_lights_off"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 4,
+          "examples": [
+            "Want me to bring up the kitchen lights?",
+            "Bright lights for cooking?",
+            "Let me get the lights up for you."
+          ]
+        },
+        {
+          "action": "cooking_observation",
+          "type": "observation",
+          "intent": "inform",
+          "requires": {},
+          "priority": "low",
+          "base_weight": 0.3,
+          "cooldown_hours": 8,
+          "examples": [
+            "Looks like a good cooking session. Let me know if you need anything.",
+            "Kitchen's been busy — I'm here if you need me."
+          ]
+        },
+        {
+          "action": "cooking_ventilation",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "climate"},
+          "priority": "low",
+          "base_weight": 0.4,
+          "cooldown_hours": 6,
+          "examples": [
+            "Kitchen might be getting warm — want me to adjust the temperature?",
+            "Want me to bump the AC while you cook?"
+          ]
+        }
+      ]
+    },
+    "eating": {
+      "suggestions": [
+        {
+          "action": "play_dining_music",
+          "type": "ambiance",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 1.0,
+          "cooldown_hours": 4,
+          "examples": [
+            "Some music for dinner?",
+            "Want a little background music?",
+            "Tunes for the meal?"
+          ]
+        },
+        {
+          "action": "dim_dining_lights",
+          "type": "ambiance",
+          "intent": "offer",
+          "requires": {"capability": "lighting"},
+          "priority": "low",
+          "base_weight": 0.8,
+          "cooldown_hours": 4,
+          "examples": [
+            "Want me to set the dining lights to something warmer?",
+            "Softer lighting for dinner?"
+          ]
+        },
+        {
+          "action": "meal_observation",
+          "type": "observation",
+          "intent": "inform",
+          "requires": {},
+          "priority": "low",
+          "base_weight": 0.2,
+          "cooldown_hours": 12,
+          "examples": [
+            "Enjoy your meal.",
+            "Bon appetit — let me know if you need anything."
+          ]
+        }
+      ]
+    },
+    "post_meal": {
+      "suggestions": [
+        {
+          "action": "vacuum_kitchen",
+          "type": "cleanliness",
+          "intent": "offer",
+          "requires": {"capability": "vacuum"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 8,
+          "capability": "vacuum.s8",
+          "button": "button.s8_after_meals",
+          "examples": [
+            "Want me to run the vacuum in the kitchen?",
+            "Kitchen could use a quick clean — should I send the robot?"
+          ]
+        }
+      ]
+    },
+    "waking_up": {
+      "suggestions": [
+        {
+          "action": "play_morning_music",
+          "type": "ambiance",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 1.0,
+          "cooldown_hours": 12,
+          "examples": [
+            "Morning — want some light music to start the day?",
+            "Some tunes to get going?"
+          ]
+        },
+        {
+          "action": "open_shades",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "shades"},
+          "priority": "low",
+          "base_weight": 0.9,
+          "cooldown_hours": 12,
+          "examples": [
+            "Want me to open the shades?",
+            "Let some light in?"
+          ]
+        },
+        {
+          "action": "schedule_vacuum_departure",
+          "type": "planning",
+          "intent": "offer",
+          "requires": {"capability": "vacuum"},
+          "priority": "low",
+          "base_weight": 0.6,
+          "cooldown_hours": 12,
+          "weekday_only": true,
+          "examples": [
+            "I can run the vacuum when you head out. Want me to set that up?",
+            "Want the robot to clean while you're away today?"
+          ]
+        }
+      ]
+    },
+    "morning_routine": {
+      "suggestions": [
+        {
+          "action": "play_morning_music",
+          "type": "ambiance",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 0.8,
+          "cooldown_hours": 12,
+          "examples": [
+            "Music while you get ready?",
+            "Want something playing?"
+          ]
+        },
+        {
+          "action": "open_shades",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "shades"},
+          "priority": "low",
+          "base_weight": 0.7,
+          "cooldown_hours": 12,
+          "examples": [
+            "Shades are still closed — want me to open them?",
+            "Let the light in?"
+          ]
+        }
+      ]
+    },
+    "winding_down": {
+      "suggestions": [
+        {
+          "action": "suggest_show",
+          "type": "entertainment",
+          "intent": "offer",
+          "requires": {"capability": "tv", "state": "media_not_playing"},
+          "priority": "low",
+          "base_weight": 0.8,
+          "cooldown_hours": 4,
+          "examples": [
+            "Settling in for the evening? Want a show recommendation?",
+            "Feel like watching something?",
+            "Ready for some TV?"
+          ]
+        },
+        {
+          "action": "evening_lights",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "lighting", "state": "room_lights_off"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 4,
+          "examples": [
+            "It's getting dark — want me to set some ambient lighting?",
+            "Lights for the evening?",
+            "Want some warm lighting?"
+          ]
+        },
+        {
+          "action": "dim_lights",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "lighting", "state": "room_lights_on"},
+          "priority": "low",
+          "base_weight": 0.7,
+          "cooldown_hours": 4,
+          "examples": [
+            "Want me to dim the lights for the evening?",
+            "Softer lighting?"
+          ]
+        },
+        {
+          "action": "play_evening_music",
+          "type": "ambiance",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 0.7,
+          "cooldown_hours": 4,
+          "examples": [
+            "Want some relaxing music for the evening?",
+            "Some background music while you unwind?"
+          ]
+        },
+        {
+          "action": "evening_observation",
+          "type": "observation",
+          "intent": "inform",
+          "requires": {},
+          "priority": "low",
+          "base_weight": 0.2,
+          "cooldown_hours": 12,
+          "examples": [
+            "Quiet evening. Let me know if you need anything.",
+            "Everything's set for the night — I'm here if you need me."
+          ]
+        }
+      ]
+    },
+    "going_to_bed": {
+      "suggestions": [
+        {
+          "action": "goodnight_routine",
+          "type": "transition",
+          "intent": "offer",
+          "requires": {},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 12,
+          "examples": [
+            "Ready for bed? I can turn everything off and set the house to night mode.",
+            "Goodnight mode — want me to shut things down?",
+            "Want me to set the house up for the night?"
+          ]
+        }
+      ]
+    },
+    "arriving_home": {
+      "suggestions": [
+        {
+          "action": "welcome_home_lights",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "lighting"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 4,
+          "examples": [
+            "Welcome back — want me to get some lights on?",
+            "Hey, you're home. Lights?",
+            "Welcome home — let me get the lights."
+          ]
+        },
+        {
+          "action": "home_status_update",
+          "type": "information",
+          "intent": "inform",
+          "requires": {},
+          "priority": "low",
+          "base_weight": 0.7,
+          "cooldown_hours": 8,
+          "examples": [
+            "Everything's been quiet while you were out.",
+            "All good here while you were away.",
+            "House has been on standby — welcome back."
+          ]
+        },
+        {
+          "action": "temperature_adjust",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "climate"},
+          "priority": "medium",
+          "base_weight": 0.6,
+          "cooldown_hours": 4,
+          "examples": [
+            "Been set to eco mode — want me to warm things up?",
+            "Temperature's been dialed back. Want me to adjust?",
+            "Want me to get the place comfortable?"
+          ]
+        }
+      ]
+    },
+    "away": {
+      "suggestions": [
+        {
+          "action": "full_clean",
+          "type": "cleanliness",
+          "intent": "offer",
+          "requires": {"capability": "vacuum"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 12,
+          "capability": "vacuum.s8",
+          "button": "button.s8_full_cleaning",
+          "examples": [
+            "Nobody's home — want me to run a full clean?",
+            "Good time for a deep clean while you're out."
+          ]
+        }
+      ]
+    }
+  }
+}
