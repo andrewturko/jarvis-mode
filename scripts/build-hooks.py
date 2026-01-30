@@ -11,9 +11,9 @@ Usage: python3 scripts/build-hooks.py
 import json
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).parent.parent
-TEMPLATES_DIR = SKILL_DIR / "templates"
-HOOKS_FILE = SKILL_DIR / "hooks.json"
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from core.paths import TEMPLATES_DIR, HOOKS_FILE
 
 # Hook definitions: id -> (match path, template file, extra fields)
 HOOK_DEFS = [

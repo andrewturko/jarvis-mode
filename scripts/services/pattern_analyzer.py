@@ -30,7 +30,8 @@ class PatternAnalyzer:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize analyzer with database path."""
         if db_path is None:
-            db_path = Path(__file__).parent.parent.parent / "data" / "events.db"
+            from core.paths import EVENTS_DB
+            db_path = EVENTS_DB
         self.db_path = Path(db_path)
 
     def _get_conn(self):

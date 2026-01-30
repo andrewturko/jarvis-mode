@@ -1,31 +1,10 @@
-# Runtime state (contains personal activity data)
-state.json
-state.lock
-triggers.json
-patterns.json
-metrics.json
-*.backup*
+# Runtime data directory (personal activity, state, learned patterns)
+data/
 
 # User-specific config (generated/configured per home)
-home-inventory.json
-config.json
-capabilities.json
-voice-config.json
-
-# Behavioral learning database (personal patterns)
-preferences.json
-temporal-patterns.json
-data/
-events.db
-
-# Camera snapshots (privacy)
-snapshots/
-*.jpg
-*.png
-
-# Logs (may contain personal info)
-logs/
-*.log
+config/config.json
+config/capabilities.json
+config/voice-config.json
 
 # Python
 __pycache__/
@@ -50,7 +29,4 @@ htmlcov/
 .claude/
 
 # Keep example files for shareability
-!*.example.json
-!capabilities.example.json
-!config.example.json
-!state.example.json
+!config/*.example.json

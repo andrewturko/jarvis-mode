@@ -53,7 +53,8 @@ class EventCollector:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize event collector with database path."""
         if db_path is None:
-            db_path = Path(__file__).parent.parent.parent / "data" / "events.db"
+            from core.paths import EVENTS_DB
+            db_path = EVENTS_DB
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +79,8 @@ class EventCollector:
 
     def _load_capabilities(self) -> set:
         """Load capabilities.json and extract all known entity IDs."""
-        capabilities_path = Path(__file__).parent.parent.parent / "capabilities.json"
+        from core.paths import CAPABILITIES_FILE
+        capabilities_path = CAPABILITIES_FILE
         priority = set()
 
         if not capabilities_path.exists():

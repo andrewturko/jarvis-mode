@@ -10,9 +10,9 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).parent.parent
-INVENTORY_FILE = SKILL_DIR / "home-inventory.json"
-CAPABILITIES_FILE = SKILL_DIR / "capabilities.json"
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from core.paths import SKILL_DIR, INVENTORY_FILE, CAPABILITIES_FILE
 
 # Get HA config from environment or clawdbot config
 def _get_ha_config():

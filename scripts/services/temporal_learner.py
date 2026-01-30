@@ -49,8 +49,7 @@ MAX_OBSERVATIONS_PER_CONTEXT = 500
 
 # --- File paths ---
 
-SKILL_DIR = Path(__file__).parent.parent.parent
-TEMPORAL_FILE = SKILL_DIR / "temporal-patterns.json"
+from core.paths import TEMPORAL_FILE
 
 
 def _load_temporal_data() -> dict:

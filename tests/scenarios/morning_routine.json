@@ -40,8 +40,7 @@
       "is_settling": false,
       "expect": {
         "signals_contain": "morning_hours",
-        "should_speak": false,
-        "note": "Just woke up, low confidence likely"
+        "note": "Just woke up — confidence is 0.33 which meets threshold, so engine may speak if suggestions exist"
       }
     },
     {

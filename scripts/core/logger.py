@@ -15,8 +15,8 @@ from typing import Any, Dict, Optional
 import uuid
 
 # Log directory
-SKILL_DIR = Path(__file__).parent.parent.parent
-LOG_DIR = SKILL_DIR / "logs"
+from core.paths import LOG_DIR
+
 LOG_FILE = LOG_DIR / "jarvis.log"
 
 # Ensure log directory exists

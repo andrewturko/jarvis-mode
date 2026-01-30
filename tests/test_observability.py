@@ -95,7 +95,7 @@ def test_logging():
     logger.error("error_message", error_type="timeout", room="kitchen")
 
     # Check log file exists
-    log_file = SKILL_DIR / "logs" / "jarvis.log"
+    log_file = SKILL_DIR / "data" / "logs" / "jarvis.log"
     assert log_file.exists(), "Log file not created"
 
     # Read and verify log entries

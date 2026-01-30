@@ -31,12 +31,10 @@ from handlers import EmptyRoomHandler, OccupiedRoomHandler
 import life_context
 
 # Paths
-SKILL_DIR = Path(__file__).parent.parent
-PATTERNS_FILE = SKILL_DIR / "patterns.json"
-CONFIG_FILE = SKILL_DIR / "config.json"
-STATE_FILE = SKILL_DIR / "state.json"
-SNAPSHOT_DIR = SKILL_DIR / "snapshots"
-HOOKS_FILE = SKILL_DIR / "hooks.json"
+from core.paths import (
+    SKILL_DIR, CONFIG_FILE, STATE_FILE, PATTERNS_FILE,
+    HOOKS_FILE, SNAPSHOT_DIR,
+)
 
 # Initialize logging
 setup_logging(log_level="INFO")

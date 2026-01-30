@@ -17,8 +17,7 @@ from core.logger import get_logger
 logger = get_logger("jarvis.metrics")
 
 # Metrics file location
-SKILL_DIR = Path(__file__).parent.parent.parent
-METRICS_FILE = SKILL_DIR / "metrics.json"
+from core.paths import METRICS_FILE
 
 
 class MetricsCollector:

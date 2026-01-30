@@ -14,8 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-SKILL_DIR = Path(__file__).parent.parent.parent
-PATTERNS_FILE = SKILL_DIR / "patterns.json"
+from core.paths import PATTERNS_FILE
 
 # Defaults
 DEFAULT_DAILY_BUDGET = 8

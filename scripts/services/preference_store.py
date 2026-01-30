@@ -48,8 +48,7 @@ from typing import Any, Dict, List, Optional, Union
 # Paths
 # --------------------------------------------------------------------------- #
 
-SKILL_DIR = Path(__file__).resolve().parent.parent.parent  # jarvis-mode/
-PREFERENCES_FILE = SKILL_DIR / "preferences.json"
+from core.paths import PREFERENCES_FILE
 
 # --------------------------------------------------------------------------- #
 # Preference entry helpers

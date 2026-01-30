@@ -18,8 +18,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from jarvis import (
     get_status, get_config, save_json, is_enabled, is_active_hours,
-    should_check_room, record_observation, CONFIG_FILE, SKILL_DIR
+    should_check_room, record_observation, CONFIG_FILE,
 )
+from core.paths import SKILL_DIR, UI_DIR, STATE_FILE
 from services.ha_service import HAService
 from core.logger import get_logger
 from core.metrics import get_metrics_collector
@@ -28,8 +29,6 @@ from core.state_manager import StateManager
 logger = get_logger("jarvis.server")
 
 PORT = int(os.environ.get('JARVIS_PORT', '8088'))
-UI_DIR = SKILL_DIR / "ui"
-STATE_FILE = SKILL_DIR / "state.json"
 
 # In-memory motion deduplication (survives across requests, resets on server restart)
 # Prevents burst triggers when multiple cameras fire simultaneously
@@ -309,6 +308,13 @@ class JarvisHandler(SimpleHTTPRequestHandler):
 
         self.send_json({"error": "Unknown endpoint"}, 404)
 
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
 
 def get_voice_status():
     """Check if voice service is running via launchctl."""
@@ -340,9 +346,9 @@ def get_voice_status():
         wake_word_model = "hey_jarvis_v0.1"
         wake_threshold = 0.5
         try:
-            voice_config_path = SKILL_DIR / "voice-config.json"
-            if voice_config_path.exists():
-                with open(voice_config_path) as f:
+            from core.paths import VOICE_CONFIG_FILE
+            if VOICE_CONFIG_FILE.exists():
+                with open(VOICE_CONFIG_FILE) as f:
                     config = json.load(f)
                 wake_word_model = config.get("wake_word", {}).get("model", "hey_jarvis_v0.1")
                 wake_threshold = config.get("wake_word", {}).get("threshold", 0.5)
@@ -368,11 +374,11 @@ def get_voice_status():
 def get_voice_cameras():
     """Get list of cameras enabled for voice commands."""
     try:
-        voice_config_path = SKILL_DIR / "voice-config.json"
-        if not voice_config_path.exists():
+        from core.paths import VOICE_CONFIG_FILE
+        if not VOICE_CONFIG_FILE.exists():
             return {"cameras": []}
 
-        with open(voice_config_path) as f:
+        with open(VOICE_CONFIG_FILE) as f:
             config = json.load(f)
 
         cameras = []
@@ -434,7 +440,8 @@ def control_voice_service(action):
 def update_voice_config(key, value):
     """Update voice configuration (wake word, threshold, etc.)."""
     try:
-        voice_config_path = SKILL_DIR / "voice-config.json"
+        from core.paths import VOICE_CONFIG_FILE
+        voice_config_path = VOICE_CONFIG_FILE
 
         if not voice_config_path.exists():
             return {"ok": False, "error": "Voice config file not found"}
@@ -499,13 +506,6 @@ def refresh_home_inventory():
             return {"ok": False, "error": result.stderr}
     except Exception as e:
         return {"ok": False, "error": str(e)}
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
 
 
 def handle_manual_check(room):

@@ -11,8 +11,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-SKILL_DIR = Path(__file__).parent.parent
-STATE_FILE = SKILL_DIR / "state.json"
+sys.path.insert(0, str(Path(__file__).parent))
+from core.paths import SKILL_DIR, STATE_FILE, BACKUP_DIR
 
 
 def backup_state(state_file: Path) -> Path:

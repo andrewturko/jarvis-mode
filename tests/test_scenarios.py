@@ -151,22 +151,31 @@ def run_scenario(scenario: dict) -> List[StepResult]:
             def now(cls, tz=None):
                 return mock_now
 
-        # Apply all mocks
+        # Apply all mocks — patch at the intelligence submodule level where
+        # functions are actually called, not on the life_context facade.
         patches = [
-            patch.object(life_context, 'load_json', side_effect=mock_load),
-            patch.object(life_context, 'get_time_context', return_value=time_ctx),
-            patch.object(life_context, 'get_activity_chain', return_value=[]),
-            patch('life_context.datetime', MockDatetime),
+            # load_json is imported into each submodule; patch all call sites
+            patch('intelligence._helpers.load_json', side_effect=mock_load),
+            patch('intelligence.context_inference.load_json', side_effect=mock_load),
+            patch('intelligence.suggestion_engine.load_json', side_effect=mock_load),
+            patch('intelligence.observation_tracker.load_json', side_effect=mock_load),
+            # Time context and activity chain live in context_inference
+            patch('intelligence.context_inference.get_time_context', return_value=time_ctx),
+            patch('intelligence.context_inference.get_activity_chain', return_value=[]),
+            # datetime is imported separately in each module that uses it
+            patch('intelligence.context_inference.datetime', MockDatetime),
+            patch('intelligence.silence_logic.datetime', MockDatetime),
         ]
 
         # Mock fatigue tracker if scenario has fatigue_state
         if "fatigue_state" in scenario:
             fs = scenario["fatigue_state"]
             patches.extend([
-                patch('life_context._fatigue_has_budget', return_value=_calc_has_budget(fs)),
-                patch('life_context._fatigue_threshold', return_value=_calc_dynamic_threshold(fs)),
-                patch('life_context._fatigue_cooldown', side_effect=lambda a: _calc_cooldown(fs, a)),
-                patch.object(life_context, 'FATIGUE_TRACKING_AVAILABLE', True),
+                patch('intelligence.silence_logic._fatigue_has_budget', return_value=_calc_has_budget(fs)),
+                patch('intelligence.silence_logic._fatigue_threshold', return_value=_calc_dynamic_threshold(fs)),
+                patch('intelligence.suggestion_engine._fatigue_cooldown', side_effect=lambda a: _calc_cooldown(fs, a)),
+                patch('intelligence.silence_logic.FATIGUE_TRACKING_AVAILABLE', True),
+                patch('intelligence.suggestion_engine.FATIGUE_TRACKING_AVAILABLE', True),
             ])
 
         for p in patches:
