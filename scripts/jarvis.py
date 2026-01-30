@@ -7,6 +7,7 @@ CLI interface for managing Jarvis Mode and interacting with home automation.
 
 import json
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -246,7 +247,7 @@ class JarvisCLI:
             external = ext.get_all_context()
 
             # Generate compound insights
-            insights = ext.get_compound_insights({
+            insights = ext.get_insights({
                 "occupied_rooms": [r for r, s in self.state_manager.read_state().get("rooms", {}).items()
                                    if s.get("occupancy", {}).get("current")],
                 "lights_on": home_state.get("lights_on", [])
@@ -448,6 +449,10 @@ class JarvisCLI:
         room = args[2]
         manual = "--manual" in args
 
+        # Generate trace ID for this request — threads through logs and output payload
+        trace_id = uuid.uuid4().hex[:8]
+        trace_logger = get_logger("jarvis.context", trace_id=trace_id)
+
         camera_config = self.config.cameras.get(room)
         if not camera_config:
             print(json.dumps({"error": f"Unknown room: {room}"}), file=sys.stderr)
@@ -546,8 +551,7 @@ class JarvisCLI:
             occupancy_verified = True
             occupancy_source = "motion_on"
         elif snapshot:
-            # Motion OFF but we have snapshot → Claude will verify visually
-            # Use last known as best guess until Claude checks
+            # Agent will verify occupancy visually from the snapshot
             person_detected = last_known_occupied if last_known_occupied is not None else False
             occupancy_verified = False
             occupancy_source = "snapshot_pending"
@@ -590,7 +594,7 @@ class JarvisCLI:
         room_observations = {
             room: {
                 "person_detected": person_detected,
-                "activity_duration": occupancy_duration or 0
+                "activity_duration": occupancy_duration or 0,
             }
         }
 
@@ -676,8 +680,11 @@ class JarvisCLI:
 
         # Build enriched context payload (Phase 3.1)
         context = {
+            "trace_id": trace_id,
             "room": room,
             "snapshot": snapshot,
+
+            "vision_instructions": "Read the snapshot image above to understand what's happening. Use the needs taxonomy (comfort, entertainment, background_entertainment, cleanliness, focus, transition, security, efficiency, ambiance, quiet, hospitality) to reason about which suggestion fits best." if snapshot else None,
 
             "temporal": {
                 "time": now.strftime("%I:%M %p"),
@@ -752,6 +759,7 @@ class JarvisCLI:
         # Log this decision to the audit trail (Phase 3.4)
         trigger = "manual" if manual else "auto_check"
         decision_entry = {
+            "trace_id": trace_id,
             "timestamp": now.isoformat(),
             "room": room,
             "trigger": trigger,
@@ -787,7 +795,7 @@ class JarvisCLI:
         }
         self.state_manager.record_observation(room, observation)
 
-        logger.info(
+        trace_logger.info(
             "context_decision",
             room=room,
             context=context_inference.get("context"),
@@ -849,8 +857,34 @@ class JarvisCLI:
         except ImportError:
             pass
 
+        # Check HA health and notify if down
+        try:
+            health = self.ha_service.check_health_with_tracking()
+            ha_notification = self.ha_service.should_notify_ha_down()
+            if ha_notification:
+                print(json.dumps({"ha_alert": True, "message": ha_notification}))
+        except Exception:
+            pass
+
         result = self.occupancy_service.poll_occupancy()
         print(json.dumps(result, indent=2))
+
+        # Run periodic maintenance (snapshot cleanup, DB pruning)
+        self._run_maintenance()
+
+    def _run_maintenance(self):
+        """Run periodic data cleanup — snapshots older than 1 day, events older than 90 days."""
+        try:
+            self.snapshot_service.cleanup_old_snapshots(days=1)
+        except Exception as e:
+            logger.error("maintenance_snapshot_cleanup_failed", error=str(e))
+
+        try:
+            from services.event_collector import EventCollector
+            collector = EventCollector()
+            collector.prune_old_events(days=90)
+        except Exception as e:
+            logger.error("maintenance_event_prune_failed", error=str(e))
 
     def cmd_verify_empty(self, args):
         """

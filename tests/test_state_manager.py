@@ -281,7 +281,7 @@ class TestStateManager:
         assert room_state["data"] == "original"
 
     def test_schema_validation(self, temp_dir):
-        """Test schema version validation."""
+        """Test schema version mismatch triggers auto-recovery."""
         state_file = temp_dir / "state.json"
 
         # Write invalid schema version
@@ -290,9 +290,10 @@ class TestStateManager:
 
         manager = StateManager(state_file)
 
-        # Should raise error on read
-        with pytest.raises(ValueError, match="schema version"):
-            manager.read_state()
+        # Should auto-recover by reinitializing (no backups available)
+        state = manager.read_state()
+        assert state["schema_version"] == manager.SCHEMA_VERSION
+        assert "rooms" in state
 
 
 @pytest.mark.integration

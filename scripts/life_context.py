@@ -16,6 +16,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from core.logger import get_logger
+
+logger = get_logger("jarvis.life_context")
+
 # Add services to path for pattern analyzer and temporal learner
 sys.path.insert(0, str(Path(__file__).parent / "services"))
 
@@ -46,10 +50,12 @@ try:
         has_budget_remaining as _fatigue_has_budget,
         process_ignored_suggestions as _fatigue_process_ignored,
         record_suggestion_sent as _fatigue_record_sent,
+        BASE_COOLDOWN_HOURS,
     )
     FATIGUE_TRACKING_AVAILABLE = True
 except ImportError:
     FATIGUE_TRACKING_AVAILABLE = False
+    BASE_COOLDOWN_HOURS = 2.0
 
 SKILL_DIR = Path(__file__).parent.parent
 LIFE_MODEL_FILE = SKILL_DIR / "life-model.json"
@@ -266,7 +272,8 @@ def load_json(path):
     try:
         with open(path) as f:
             return json.load(f)
-    except:
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+        logger.warning("load_json_failed", path=str(path), error=str(e))
         return {}
 
 
@@ -377,7 +384,29 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
                     signals.append("stationary")
             elif room == "dining":
                 signals.append("dining_area_presence")
-    
+
+    # Working-from-home signals
+    if time_ctx["is_work_hours"] and not time_ctx["is_weekend"]:
+        signals.append("daytime_hours")
+        for room, obs in room_observations.items():
+            if not obs.get("person_detected"):
+                continue
+            activity = (obs.get("activity") or "").lower()
+            duration = obs.get("activity_duration", 0)
+            # Desk/computer activity detected by vision
+            if (duration > 30 and
+                    any(kw in activity for kw in [
+                        "sitting", "desk", "computer", "working",
+                        "laptop", "typing", "at desk"])):
+                signals.append("office_or_desk_presence")
+                signals.append("minimal_movement")
+                break
+            # Long stationary presence in non-kitchen/dining room during work hours
+            if (duration > 60 and
+                    room not in ["kitchen", "dining"] and
+                    "tv_or_couch" not in signals):
+                signals.append("minimal_movement")
+
     if not occupied_rooms:
         signals.append("all_rooms_empty")
         signals.append("no_motion_all_rooms")
@@ -636,6 +665,19 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
             # Novelty bonus for never-seen suggestions
             s["_effective_weight"] = base_w * 1.2
 
+    # Fatigue-aware weighting: penalize ignored actions, boost accepted ones
+    if FATIGUE_TRACKING_AVAILABLE:
+        for s in suggestions:
+            action = s["action"]
+            # Per-action backoff (2h base → 1.0 normalized; higher = more ignored)
+            cooldown_mult = _fatigue_cooldown(action) / BASE_COOLDOWN_HOURS
+            if cooldown_mult > 1.0:
+                s["_effective_weight"] = s.get("_effective_weight", 1.0) / cooldown_mult
+            # Boost suggestions with good historical acceptance
+            acceptance_rate = s.get("acceptance_rate", 0)
+            if acceptance_rate > 0.5:
+                s["_effective_weight"] = s.get("_effective_weight", 1.0) * (1.0 + acceptance_rate * 0.5)
+
     # Sort by effective weight (descending) then priority
     priority_order = {"high": 0, "medium": 1, "low": 2}
     suggestions.sort(
@@ -867,10 +909,12 @@ def get_last_awaiting_feedback() -> Optional[dict]:
     if not last:
         return None
 
-    # Check if it was sent within the last hour (reasonable response window)
+    # Check if it was sent within the feedback window (configurable via life-model settings)
     try:
+        model = get_life_model()
+        feedback_window = model.get("settings", {}).get("feedback_window_hours", 4)
         timestamp = datetime.fromisoformat(last.get("timestamp", ""))
-        if datetime.now() - timestamp > timedelta(hours=1):
+        if datetime.now() - timestamp > timedelta(hours=feedback_window):
             return None
     except (ValueError, AttributeError):
         return None
@@ -1079,7 +1123,8 @@ def should_stay_silent(
     suggestions = not_yet_sent
 
     # Rule 3: Focus contexts -> stay silent
-    focus_contexts = ["working", "sleeping", "concentrating", "on_call", "meeting"]
+    model = get_life_model()
+    focus_contexts = model.get("focus_contexts", ["working", "sleeping", "concentrating", "on_call", "meeting"])
     if ctx_name in focus_contexts:
         return True, f"Focus context ({ctx_name})"
 
@@ -1287,6 +1332,26 @@ def get_context_transitions() -> list:
     return list(reversed(transitions))
 
 
+def _count_recent_transitions(state: dict, minutes: int = 15) -> int:
+    """Count distinct room transitions in decision log within recent minutes."""
+    cutoff = datetime.now() - timedelta(minutes=minutes)
+    log = state.get("decision_log", [])
+    rooms_seen = set()
+    transitions = 0
+    for entry in reversed(log):
+        try:
+            ts = datetime.fromisoformat(entry.get("timestamp", ""))
+            if ts < cutoff:
+                break
+            room = entry.get("room")
+            if room and room not in rooms_seen:
+                rooms_seen.add(room)
+                transitions += 1
+        except (ValueError, TypeError):
+            continue
+    return transitions
+
+
 def infer_global_context(all_rooms: dict) -> dict:
     """
     Infer household-level context from all rooms.
@@ -1336,11 +1401,14 @@ def infer_global_context(all_rooms: dict) -> dict:
         signals.append("multiple_rooms_occupied")
         confidence = 0.75
 
-        # Could be guests or just active day
-        if occupied_count >= 4:
+        # Rapid multi-room transitions suggest multiple people (guests)
+        state = load_json(STATE_FILE)
+        recent_transitions = _count_recent_transitions(state, minutes=15)
+        if recent_transitions >= 4 or occupied_count >= 4:
             signals.append("high_activity")
+            signals.append("social_gathering_indicators")
             global_context = "guests_over"
-            confidence = 0.6  # Lower confidence, might just be moving around
+            confidence = 0.65
 
     # Evening settled pattern
     if time_ctx["is_evening"] and occupied_count == 1 and "living_room" in occupied_rooms:
@@ -1385,9 +1453,9 @@ def main():
                 data = json.load(sys.stdin)
                 room_obs = data.get("rooms", {})
                 home_state = data.get("home_state", {})
-            except:
-                pass
-        
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Warning: Failed to parse stdin: {e}", file=sys.stderr)
+
         result = infer_context(room_obs, home_state)
         print(json.dumps(result, indent=2))
     
@@ -1400,9 +1468,9 @@ def main():
                 data = json.load(sys.stdin)
                 room_obs = data.get("rooms", {})
                 home_state = data.get("home_state", {})
-            except:
-                pass
-        
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Warning: Failed to parse stdin: {e}", file=sys.stderr)
+
         context_result = infer_context(room_obs, home_state)
         suggestions = get_suggestions(context_result)
         

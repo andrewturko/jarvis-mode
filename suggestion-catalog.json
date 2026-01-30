@@ -40,8 +40,9 @@
           "base_weight": 0.3,
           "cooldown_hours": 8,
           "examples": [
-            "Looks like a good cooking session. Let me know if you need anything.",
-            "Kitchen's been busy — I'm here if you need me."
+            "Smells like something good's happening in there.",
+            "Chef mode activated. Holler if you need a sous-chef.",
+            "You're on a roll in there. I'll stay out of your way."
           ]
         },
         {
@@ -97,8 +98,9 @@
           "base_weight": 0.2,
           "cooldown_hours": 12,
           "examples": [
-            "Enjoy your meal.",
-            "Bon appetit — let me know if you need anything."
+            "Dig in — I'll hold all calls.",
+            "Bon appetit. I'll keep things quiet.",
+            "Enjoy. I'll be here when you're done."
           ]
         }
       ]
@@ -118,6 +120,19 @@
           "examples": [
             "Want me to run the vacuum in the kitchen?",
             "Kitchen could use a quick clean — should I send the robot?"
+          ]
+        },
+        {
+          "action": "run_dishwasher",
+          "type": "cleanliness",
+          "intent": "offer",
+          "requires": {"capability": "appliances"},
+          "priority": "low",
+          "base_weight": 0.6,
+          "cooldown_hours": 12,
+          "examples": [
+            "Dishwasher time?",
+            "Want me to start the dishwasher?"
           ]
         }
       ]
@@ -261,8 +276,24 @@
           "base_weight": 0.2,
           "cooldown_hours": 12,
           "examples": [
-            "Quiet evening. Let me know if you need anything.",
-            "Everything's set for the night — I'm here if you need me."
+            "Quiet night. I've got things covered.",
+            "All set for the evening. Say the word if you need anything.",
+            "Cozy night mode engaged. I'm on standby."
+          ]
+        },
+        {
+          "action": "evening_quick_clean",
+          "type": "cleanliness",
+          "intent": "offer",
+          "requires": {"capability": "vacuum"},
+          "priority": "low",
+          "base_weight": 0.4,
+          "cooldown_hours": 12,
+          "capability": "vacuum.s8",
+          "button": "button.s8_daily_clean",
+          "examples": [
+            "Quick vacuum run before you settle in?",
+            "Want the robot to do a pass before the evening?"
           ]
         }
       ]
@@ -281,6 +312,19 @@
             "Ready for bed? I can turn everything off and set the house to night mode.",
             "Goodnight mode — want me to shut things down?",
             "Want me to set the house up for the night?"
+          ]
+        },
+        {
+          "action": "close_shades_night",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "shades"},
+          "priority": "medium",
+          "base_weight": 0.9,
+          "cooldown_hours": 12,
+          "examples": [
+            "Want me to close the bedroom shades?",
+            "Shades down for the night?"
           ]
         }
       ]
@@ -310,9 +354,9 @@
           "base_weight": 0.7,
           "cooldown_hours": 8,
           "examples": [
-            "Everything's been quiet while you were out.",
-            "All good here while you were away.",
-            "House has been on standby — welcome back."
+            "All quiet on the home front while you were out.",
+            "Nothing to report. The robot didn't throw any parties.",
+            "Place is just how you left it. Welcome back."
           ]
         },
         {
@@ -346,6 +390,85 @@
           "examples": [
             "Nobody's home — want me to run a full clean?",
             "Good time for a deep clean while you're out."
+          ]
+        }
+      ]
+    },
+    "working": {
+      "suggestions": [
+        {
+          "action": "focus_lighting",
+          "type": "comfort",
+          "intent": "offer",
+          "requires": {"capability": "lighting"},
+          "priority": "low",
+          "base_weight": 0.5,
+          "cooldown_hours": 8,
+          "examples": [
+            "Want me to set the lights for working?",
+            "Bright lights for focus?"
+          ]
+        },
+        {
+          "action": "suggest_break",
+          "type": "wellness",
+          "intent": "inform",
+          "requires": {},
+          "priority": "low",
+          "base_weight": 0.3,
+          "cooldown_hours": 4,
+          "examples": [
+            "You've been at it a while. Good time for a stretch?",
+            "Might be a good time to step away for a minute."
+          ]
+        }
+      ]
+    },
+    "going_out": {
+      "suggestions": [
+        {
+          "action": "close_shades_departure",
+          "type": "efficiency",
+          "intent": "offer",
+          "requires": {"capability": "shades"},
+          "priority": "medium",
+          "base_weight": 1.0,
+          "cooldown_hours": 8,
+          "examples": [
+            "Want me to close the shades before you head out?",
+            "Shades down while you're gone?"
+          ]
+        },
+        {
+          "action": "schedule_departure_clean",
+          "type": "cleanliness",
+          "intent": "offer",
+          "requires": {"capability": "vacuum"},
+          "priority": "medium",
+          "base_weight": 0.8,
+          "cooldown_hours": 12,
+          "capability": "vacuum.s8",
+          "button": "button.s8_daily_clean",
+          "examples": [
+            "Want me to run the vacuum while you're out?",
+            "Good time for a clean — I'll send the robot?"
+          ]
+        }
+      ]
+    },
+    "break": {
+      "suggestions": [
+        {
+          "action": "break_music",
+          "type": "entertainment",
+          "intent": "offer",
+          "requires": {"capability": "music", "state": "music_not_playing"},
+          "priority": "low",
+          "base_weight": 0.7,
+          "cooldown_hours": 4,
+          "examples": [
+            "Taking a break? Want some tunes?",
+            "Music while you recharge?"
           ]
         }
       ]

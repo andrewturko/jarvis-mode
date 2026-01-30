@@ -1,4 +1,8 @@
 {
+  "focus_contexts": ["working", "sleeping", "concentrating", "on_call", "meeting", "reading", "gaming", "exercising"],
+  "settings": {
+    "feedback_window_hours": 4
+  },
   "contexts": {
     "waking_up": {
       "description": "Just woke up, starting the day",
@@ -228,6 +232,85 @@
       "transitions_to": [
         "winding_down",
         "post_meal"
+      ]
+    },
+    "reading": {
+      "description": "Focused reading activity",
+      "signals": [
+        "stationary",
+        "single_room_presence",
+        "minimal_movement"
+      ],
+      "typical_needs": [
+        "quiet",
+        "comfort"
+      ],
+      "transitions_to": [
+        "break",
+        "winding_down"
+      ]
+    },
+    "gaming": {
+      "description": "Playing video games",
+      "signals": [
+        "living_room_presence",
+        "tv_on",
+        "stationary"
+      ],
+      "typical_needs": [
+        "entertainment",
+        "comfort"
+      ],
+      "transitions_to": [
+        "break",
+        "winding_down"
+      ]
+    },
+    "exercising": {
+      "description": "Working out at home",
+      "signals": [
+        "high_movement",
+        "single_room_presence"
+      ],
+      "typical_needs": [
+        "comfort",
+        "entertainment"
+      ],
+      "transitions_to": [
+        "break",
+        "winding_down"
+      ]
+    },
+    "break": {
+      "description": "Taking a break from focused activity",
+      "signals": [
+        "room_transition",
+        "kitchen_brief_visit"
+      ],
+      "typical_needs": [
+        "comfort",
+        "background_entertainment"
+      ],
+      "transitions_to": [
+        "working",
+        "cooking",
+        "winding_down"
+      ]
+    },
+    "going_out": {
+      "description": "Preparing to leave home",
+      "signals": [
+        "entry_presence",
+        "multiple_room_transitions",
+        "gathering_items"
+      ],
+      "typical_needs": [
+        "transition",
+        "information",
+        "efficiency"
+      ],
+      "transitions_to": [
+        "away"
       ]
     }
   },

@@ -21,8 +21,11 @@ from jarvis import (
     should_check_room, record_observation, CONFIG_FILE, SKILL_DIR
 )
 from services.ha_service import HAService
+from core.logger import get_logger
 from core.metrics import get_metrics_collector
 from core.state_manager import StateManager
+
+logger = get_logger("jarvis.server")
 
 PORT = int(os.environ.get('JARVIS_PORT', '8088'))
 UI_DIR = SKILL_DIR / "ui"
@@ -217,8 +220,10 @@ class JarvisHandler(SimpleHTTPRequestHandler):
         if content_length > 0:
             try:
                 body = json.loads(self.rfile.read(content_length))
-            except:
-                pass
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning("webhook_invalid_json", path=path, error=str(e))
+                self.send_json({"error": f"Invalid JSON: {e}"}, status=400)
+                return
         
         # Motion webhook: POST /webhook/motion/<room>
         # or POST /webhook/motion with {"room": "kitchen"}
@@ -328,8 +333,8 @@ def get_voice_status():
             try:
                 with open(log_path, 'r') as f:
                     logs = f.read()
-            except:
-                pass
+            except OSError as e:
+                logger.warning("voice_log_read_failed", path=log_path, error=str(e))
 
         # Get wake word config
         wake_word_model = "hey_jarvis_v0.1"
@@ -341,8 +346,8 @@ def get_voice_status():
                     config = json.load(f)
                 wake_word_model = config.get("wake_word", {}).get("model", "hey_jarvis_v0.1")
                 wake_threshold = config.get("wake_word", {}).get("threshold", 0.5)
-        except:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("voice_config_read_failed", error=str(e))
 
         return {
             "running": running,

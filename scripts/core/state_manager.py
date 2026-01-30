@@ -8,12 +8,15 @@ concurrent access to state.json.
 
 import fcntl
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
+
+logger = logging.getLogger("jarvis.state_manager")
 
 
 class StateManager:
@@ -89,7 +92,7 @@ class StateManager:
 
     def read_state(self) -> Dict[str, Any]:
         """
-        Read state with file lock.
+        Read state with file lock. Auto-recovers from corruption using backups.
 
         Returns:
             State dictionary
@@ -107,8 +110,36 @@ class StateManager:
                     )
 
                 return state
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"Corrupted state file: {e}")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"State file corrupted: {e}. Attempting backup recovery.")
+                recovered = self._try_restore_backup()
+                if recovered is not None:
+                    logger.info("State recovered from backup.")
+                    return recovered
+                logger.warning("No valid backup found. Reinitializing state.")
+                self._initialize_state()
+                with open(self.state_file, 'r') as fresh:
+                    return json.load(fresh)
+
+    def _try_restore_backup(self) -> Optional[Dict[str, Any]]:
+        """Find and restore from the most recent valid backup."""
+        backup_dir = self.state_file.parent
+        backups = sorted(
+            backup_dir.glob("state*.backup*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+
+        for backup_path in backups:
+            try:
+                with open(backup_path, 'r') as f:
+                    state = json.load(f)
+                if "rooms" in state or "schema_version" in state:
+                    self._write_state_atomic(state)
+                    return state
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+        return None
 
     def _write_state_atomic(self, state: Dict[str, Any]):
         """
@@ -177,7 +208,13 @@ class StateManager:
                 f.seek(0)
                 state = json.load(f)
             except json.JSONDecodeError:
-                state = self._empty_state()
+                state = {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "created_at": datetime.now().isoformat(),
+                    "rooms": {},
+                    "decision_log": [],
+                    "last_poll": None
+                }
 
             # Apply update function
             state = update_fn(state)

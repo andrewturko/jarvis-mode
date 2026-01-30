@@ -27,8 +27,8 @@ def _get_ha_config():
                 env_vars = config.get("env", {}).get("vars", {})
                 url = url or env_vars.get("HA_URL", "http://homeassistant.local:8123")
                 token = token or env_vars.get("HA_TOKEN", "")
-        except:
-            pass
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+            print(f"Warning: Could not read clawdbot config: {e}", file=sys.stderr)
     
     return url or "http://homeassistant.local:8123", token or ""
 
@@ -363,7 +363,7 @@ def main():
     try:
         with open(INVENTORY_FILE) as f:
             inventory = json.load(f)
-    except:
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         inventory = {"capabilities": {}}
     
     # Update entity lists

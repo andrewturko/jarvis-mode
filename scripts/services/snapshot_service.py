@@ -230,55 +230,52 @@ class SnapshotService:
         except Exception as e:
             logger.error("cleanup_snapshots_error", error=str(e), exc_info=True)
 
-    def analyze_for_person(self, snapshot_path: str) -> Dict[str, Any]:
+    def analyze_snapshot(self, snapshot_path: str) -> Dict[str, Any]:
         """
-        Analyze snapshot for person presence using Claude vision API.
+        Analyze snapshot using Claude vision API.
 
-        This is the source of truth for occupancy — motion sensors only detect
-        movement, not presence. Someone sitting still is still there.
+        Returns scene description, people count, identified needs (from the
+        life-model needs taxonomy), and notable observations. The needs chain
+        directly to capability types → devices.
 
         Args:
             snapshot_path: Path to snapshot image
 
         Returns:
             Dict with:
-                - person_detected (bool): True if person visible
-                - confidence (str): high/medium/low
-                - description (str): Brief description of what's seen
+                - people_count (int|None): Number of people visible
+                - person_detected (bool|None): True if people_count > 0
+                - activity (str|None): Brief scene description
+                - needs (list[str]): Identified needs from taxonomy
+                - notable (str|None): Anything unusual
+                - confidence (str): "high" if clean parse, "low" if fallback
         """
-        # Get API key from environment or clawdbot config
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-        if not api_key:
+        # Resolve clawdbot gateway URL and auth for API calls
+        gateway_url = os.environ.get("CLAWDBOT_GATEWAY_URL")
+        gateway_password = os.environ.get("CLAWDBOT_GATEWAY_PASSWORD")
+        if not gateway_url:
             config_path = Path.home() / ".clawdbot" / "clawdbot.json"
             if config_path.exists():
                 try:
                     with open(config_path) as f:
                         config = json.load(f)
-                    # Try to get from auth profiles
-                    profiles = config.get("auth", {}).get("profiles", {})
-                    for profile in profiles.values():
-                        if profile.get("provider") == "anthropic" and profile.get("apiKey"):
-                            api_key = profile["apiKey"]
-                            break
-                except Exception:
-                    pass
+                    gw = config.get("gateway", {})
+                    port = gw.get("port", 18789)
+                    gateway_url = f"http://localhost:{port}"
+                    if not gateway_password:
+                        gateway_password = gw.get("auth", {}).get("password")
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning("vision_clawdbot_config_read_failed", error=str(e))
 
-        if not api_key:
-            # Try .anthropic file
-            anthropic_file = Path.home() / ".anthropic"
-            if anthropic_file.exists():
-                try:
-                    api_key = anthropic_file.read_text().strip()
-                except Exception:
-                    pass
-
-        if not api_key:
-            logger.warning("vision_analysis_no_api_key")
+        if not gateway_url:
+            logger.warning("vision_no_gateway", message="No clawdbot gateway URL found")
             return {
+                "people_count": None,
                 "person_detected": None,
+                "activity": None,
+                "needs": [],
+                "notable": None,
                 "confidence": "unknown",
-                "description": "No API key available for vision analysis"
             }
 
         # Read and encode image
@@ -288,52 +285,66 @@ class SnapshotService:
         except Exception as e:
             logger.error("vision_read_image_failed", error=str(e))
             return {
+                "people_count": None,
                 "person_detected": None,
+                "activity": None,
+                "needs": [],
+                "notable": None,
                 "confidence": "unknown",
-                "description": f"Failed to read image: {e}"
             }
 
         # Call Claude API with vision
         try:
+            prompt_text = (
+                'Analyze this home camera snapshot. Reply with ONLY a JSON object:\n'
+                '{\n'
+                '  "people_count": 0,\n'
+                '  "activity": "brief description of what is happening",\n'
+                '  "needs": ["comfort"],\n'
+                '  "notable": "anything unusual, or null"\n'
+                '}\n\n'
+                'For "needs", pick relevant items from: comfort, entertainment, '
+                'background_entertainment, cleanliness, focus, transition, security, '
+                'efficiency, ambiance, quiet, hospitality.\n'
+                'Keep activity under 10 words. Nothing outside the JSON.'
+            )
+
             request_body = json.dumps({
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 100,
+                "model": "anthropic/claude-sonnet-4-20250514",
+                "max_tokens": 250,
                 "messages": [{
                     "role": "user",
                     "content": [
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": image_data
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
                             }
                         },
                         {
                             "type": "text",
-                            "text": "Is there a person in this image? Reply with ONLY a JSON object: {\"person\": true/false, \"confidence\": \"high\"/\"medium\"/\"low\", \"brief\": \"2-3 word description\"}. Nothing else."
+                            "text": prompt_text
                         }
                     ]
                 }]
             }).encode("utf-8")
 
+            headers = {"Content-Type": "application/json"}
+            if gateway_password:
+                headers["Authorization"] = f"Bearer {gateway_password}"
+
             req = urllib.request.Request(
-                "https://api.anthropic.com/v1/messages",
+                f"{gateway_url}/v1/chat/completions",
                 data=request_body,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01"
-                }
+                headers=headers,
             )
 
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode())
 
-            # Parse response
-            text = result.get("content", [{}])[0].get("text", "")
+            # Parse response (OpenAI chat completions format)
+            text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-            # Extract JSON from response
             try:
                 # Handle potential markdown wrapping
                 if "```" in text:
@@ -342,34 +353,45 @@ class SnapshotService:
                         text = text[4:]
 
                 parsed = json.loads(text.strip())
-                person_detected = parsed.get("person", False)
-                confidence = parsed.get("confidence", "medium")
-                description = parsed.get("brief", "analyzed")
+                people_count = parsed.get("people_count", 0)
+                activity = parsed.get("activity", "unknown")
+                needs = parsed.get("needs", [])
+                notable = parsed.get("notable")
 
                 logger.info("vision_analysis_complete",
-                           person_detected=person_detected,
-                           confidence=confidence)
+                           people_count=people_count,
+                           activity=activity,
+                           needs=needs)
 
                 return {
-                    "person_detected": person_detected,
-                    "confidence": confidence,
-                    "description": description
+                    "people_count": people_count,
+                    "person_detected": people_count > 0,
+                    "activity": activity,
+                    "needs": needs if isinstance(needs, list) else [],
+                    "notable": notable,
+                    "confidence": "high",
                 }
             except json.JSONDecodeError:
-                # Fallback: look for keywords
+                # Fallback: extract what we can from raw text
                 text_lower = text.lower()
-                person_detected = "yes" in text_lower or "person" in text_lower or "true" in text_lower
+                person_detected = "person" in text_lower or "people" in text_lower or "someone" in text_lower
 
                 return {
+                    "people_count": 1 if person_detected else 0,
                     "person_detected": person_detected,
+                    "activity": text[:80],
+                    "needs": [],
+                    "notable": None,
                     "confidence": "low",
-                    "description": text[:50]
                 }
 
         except Exception as e:
             logger.error("vision_api_failed", error=str(e))
             return {
+                "people_count": None,
                 "person_detected": None,
+                "activity": None,
+                "needs": [],
+                "notable": None,
                 "confidence": "unknown",
-                "description": f"Vision API error: {e}"
             }

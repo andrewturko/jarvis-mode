@@ -2,36 +2,36 @@
   "schema_version": 1,
   "started_at": "2026-01-28T05:55:02.064754Z",
   "decisions": {
-    "total": 6,
-    "spoke": 6,
+    "total": 12,
+    "spoke": 12,
     "silent": 0,
     "silence_rate": 0.0
   },
   "suggestions": {
-    "generated": 18,
-    "offered": 12,
+    "generated": 36,
+    "offered": 24,
     "accepted": 0,
     "rejected": 0,
     "acceptance_rate": 0.0
   },
   "context": {
-    "total_inferences": 6,
-    "high_confidence": 6,
+    "total_inferences": 12,
+    "high_confidence": 12,
     "avg_confidence": 0.85,
-    "confidence_sum": 5.1
+    "confidence_sum": 10.199999999999998
   },
   "costs": {
-    "vision_api_calls": 6,
-    "total_vision_tokens": 7500,
-    "total_output_tokens": 270,
-    "estimated_usd": 0.0264
+    "vision_api_calls": 12,
+    "total_vision_tokens": 15000,
+    "total_output_tokens": 540,
+    "estimated_usd": 0.0528
   },
   "performance": {
-    "snapshot_count": 6,
-    "snapshot_duration_ms_sum": 5100,
+    "snapshot_count": 12,
+    "snapshot_duration_ms_sum": 10200,
     "avg_snapshot_ms": 850.0,
-    "inference_count": 6,
-    "inference_duration_ms_sum": 14040,
+    "inference_count": 12,
+    "inference_duration_ms_sum": 28080,
     "avg_inference_ms": 2340.0
   },
   "errors": {
@@ -88,6 +88,60 @@
     },
     {
       "timestamp": "2026-01-30T05:03:13.528490Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T07:04:33.477896Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T07:17:43.850798Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T07:33:05.468521Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T08:03:22.984207Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T08:03:34.441566Z",
+      "type": "decision",
+      "room": "kitchen",
+      "decision": "spoke",
+      "reason": "Context transition + suggestion",
+      "context_confidence": 0.85,
+      "suggestions_count": 2
+    },
+    {
+      "timestamp": "2026-01-30T08:04:31.931956Z",
       "type": "decision",
       "room": "kitchen",
       "decision": "spoke",

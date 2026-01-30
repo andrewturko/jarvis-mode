@@ -281,8 +281,10 @@ class ContextService:
         if not suggestions:
             return False, "No actionable suggestions"
 
-        # Rule 3: Focus contexts -> stay silent
-        focus_contexts = ["working", "sleeping", "concentrating"]
+        # Rule 3: Focus contexts -> stay silent (read from model, fall back to defaults)
+        from life_context import get_life_model
+        model = get_life_model()
+        focus_contexts = model.get("focus_contexts", ["working", "sleeping", "concentrating", "on_call", "meeting"])
         if context in focus_contexts:
             return False, f"Focus context ({context})"
 

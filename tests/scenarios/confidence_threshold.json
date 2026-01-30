@@ -29,8 +29,7 @@
       "expect": {
         "max_confidence": 0.5,
         "should_speak": false,
-        "silence_reason_contains": "confidence",
-        "note": "Living room with minimal signals = low confidence, should stay silent"
+        "note": "Living room during work hours triggers working context (focus silence) or low confidence silence"
       }
     },
     {

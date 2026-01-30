@@ -65,6 +65,12 @@ class SuggestionsConfig:
 
 
 @dataclass
+class VisionConfig:
+    """Configuration for vision analysis via Claude API."""
+    enabled: bool = True
+
+
+@dataclass
 class JarvisConfig:
     """
     Main Jarvis configuration.
@@ -82,6 +88,7 @@ class JarvisConfig:
     active_hours: ActiveHoursConfig = field(default_factory=ActiveHoursConfig)
     cameras: Dict[str, CameraConfig] = field(default_factory=dict)
     suggestions: SuggestionsConfig = field(default_factory=SuggestionsConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     notify_channel: str = "telegram"
     confidence_threshold: float = 0.5
 
@@ -109,6 +116,8 @@ class JarvisConfig:
             self.active_hours = ActiveHoursConfig(**self.active_hours)
         if isinstance(self.suggestions, dict):
             self.suggestions = SuggestionsConfig(**self.suggestions)
+        if isinstance(self.vision, dict):
+            self.vision = VisionConfig(**self.vision)
 
     def get_enabled_cameras(self) -> Dict[str, CameraConfig]:
         """Get only enabled cameras."""

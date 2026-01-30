@@ -116,6 +116,9 @@ class HAService:
         self.ha_url, self.ha_token = self._get_ha_config(ha_url, ha_token)
         self.cache = HACache(ttl_seconds=cache_ttl_seconds)
         self.circuit_breaker = get_circuit_breaker("ha_service", failure_threshold=5, timeout_seconds=60)
+        self._last_known_status = "unknown"
+        self._down_since = None
+        self._notification_sent = False
 
         if not self.ha_token:
             logger.warning("ha_service_init", message="No HA token found - HA operations will fail")
@@ -490,3 +493,39 @@ class HAService:
                 "status": "down",
                 "error": str(e)
             }
+
+    def check_health_with_tracking(self) -> Dict[str, any]:
+        """Check health and track status transitions for notifications."""
+        health = self.check_health()
+        new_status = health.get("status", "unknown")
+
+        if new_status == "down" and self._last_known_status != "down":
+            self._down_since = datetime.now()
+            self._notification_sent = False
+
+        if new_status == "up" and self._last_known_status == "down":
+            downtime = datetime.now() - self._down_since if self._down_since else None
+            self._down_since = None
+            self._notification_sent = False
+            health["recovered"] = True
+            health["downtime_minutes"] = int(downtime.total_seconds() / 60) if downtime else None
+
+        self._last_known_status = new_status
+        return health
+
+    def should_notify_ha_down(self) -> Optional[str]:
+        """
+        Returns a notification message if HA has been down long enough
+        to warrant alerting the user. Returns None if no notification needed.
+        """
+        if self._last_known_status != "down" or self._notification_sent:
+            return None
+        if self._down_since is None:
+            return None
+
+        down_minutes = (datetime.now() - self._down_since).total_seconds() / 60
+        if down_minutes >= 5:
+            self._notification_sent = True
+            return (f"Home Assistant has been unreachable for "
+                    f"{int(down_minutes)} minutes. I'm running blind on "
+                    f"home state until it comes back.")

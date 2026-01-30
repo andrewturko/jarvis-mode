@@ -32,5 +32,9 @@
     "tv": true,
     "climate": true
   },
-  "notifyChannel": "telegram"
+  "notifyChannel": "telegram",
+  "confidenceThreshold": 0.3,
+  "vision": {
+    "enabled": true
+  }
 }
