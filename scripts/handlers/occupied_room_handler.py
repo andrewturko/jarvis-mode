@@ -12,6 +12,7 @@ from core.logger import get_logger
 from core.config import JarvisConfig
 from services.ha_service import HAService
 from services.context_service import ContextService
+from intelligence._helpers import get_speaker_entity_ids
 
 logger = get_logger("jarvis.occupied_room_handler")
 
@@ -90,7 +91,7 @@ class OccupiedRoomHandler:
             "hour": hour,
             "timeOfDay": analysis.time_context.get("time_of_day", "unknown"),
             "lightsOn": lights_on,
-            "musicPlaying": len(home_state.get("media_playing", [])) > 0,
+            "musicPlaying": any(e in get_speaker_entity_ids() for e in home_state.get("media_playing", [])),
             "context": {
                 "inferred": analysis.context,
                 "confidence": analysis.confidence,
@@ -142,8 +143,8 @@ class OccupiedRoomHandler:
                 "message": f"It's dark - want me to turn on the {room_name.replace('_', ' ')} lights?"
             })
 
-        # Check if music is playing anywhere
-        music_playing = len(home_state.get("media_playing", [])) > 0
+        # Check if music (not TV) is playing anywhere
+        music_playing = any(e in get_speaker_entity_ids() for e in home_state.get("media_playing", []))
 
         # Morning routine suggestions
         if 6 <= hour <= 9 and not music_playing and self.config.is_suggestion_enabled('music'):

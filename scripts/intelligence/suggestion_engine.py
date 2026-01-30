@@ -11,7 +11,7 @@ from intelligence._helpers import (
     load_json, get_life_model, get_capabilities, get_patterns,
 )
 from intelligence.observation_tracker import get_recently_sent_suggestions
-from core.paths import SUGGESTION_CATALOG_FILE
+from core.paths import SUGGESTION_CATALOG_FILE, GENERATED_SUGGESTIONS_FILE
 
 # Preference store — general-purpose preference learning
 try:
@@ -98,6 +98,22 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
     # ------------------------------------------------------------------ #
     catalog = load_json(SUGGESTION_CATALOG_FILE)
     catalog_contexts = catalog.get("contexts", {})
+
+    # Merge auto-generated suggestions (fills gaps not covered by human catalog)
+    generated = load_json(GENERATED_SUGGESTIONS_FILE)
+    generated_contexts = generated.get("contexts", {})
+    human_actions = {
+        ctx: {s["action"] for s in data.get("suggestions", [])}
+        for ctx, data in catalog_contexts.items()
+    }
+    for ctx_name, ctx_data in generated_contexts.items():
+        if ctx_name not in catalog_contexts:
+            catalog_contexts[ctx_name] = ctx_data
+        else:
+            existing = human_actions.get(ctx_name, set())
+            for entry in ctx_data.get("suggestions", []):
+                if entry["action"] not in existing:
+                    catalog_contexts[ctx_name]["suggestions"].append(entry)
 
     # Look up context in catalog (also check waking_up -> morning_routine alias)
     context_key = context

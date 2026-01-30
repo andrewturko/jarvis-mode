@@ -6,7 +6,7 @@ Re-exports all public APIs so callers can use:
 
 from intelligence._helpers import (
     load_json, save_json, get_life_model, get_capabilities,
-    get_patterns, save_patterns,
+    get_patterns, save_patterns, get_speaker_entity_ids,
 )
 from intelligence.activity_chains import get_activity_chain, chain_signals
 from intelligence.context_inference import (
@@ -28,7 +28,7 @@ from intelligence.observation_tracker import (
 __all__ = [
     # File helpers
     'load_json', 'save_json', 'get_life_model', 'get_capabilities',
-    'get_patterns', 'save_patterns',
+    'get_patterns', 'save_patterns', 'get_speaker_entity_ids',
     # Activity chains
     'get_activity_chain', 'chain_signals',
     # Context inference

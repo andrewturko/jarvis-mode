@@ -391,6 +391,10 @@ def main():
     # Merge new entities into capabilities.json (update, not overwrite)
     update_capabilities(categories)
 
+    # Regenerate suggestions for new/changed capabilities
+    from generate_suggestions import generate
+    generate()
+
 
 if __name__ == "__main__":
     main()

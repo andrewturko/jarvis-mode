@@ -28,6 +28,7 @@ TEMPORAL_FILE = DATA_DIR / "temporal-patterns.json"
 TRIGGERS_FILE = DATA_DIR / "triggers.json"
 INVENTORY_FILE = DATA_DIR / "home-inventory.json"
 EVENTS_DB = DATA_DIR / "events.db"
+GENERATED_SUGGESTIONS_FILE = DATA_DIR / "generated-suggestions.json"
 
 # --- Directories ---
 SNAPSHOT_DIR = DATA_DIR / "snapshots"

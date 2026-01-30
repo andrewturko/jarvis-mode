@@ -601,9 +601,10 @@ class JarvisCLI:
 
         # Get suggestions based on inferred context + current home state
         capabilities = life_context.get_capabilities()
+        speaker_entity_ids = life_context.get_speaker_entity_ids(capabilities)
         # Pass home_state so suggestions are state-aware (skip music if playing, etc.)
         suggestion_home_state = {
-            "music_playing": len(home_state.get("media_playing", [])) > 0,
+            "music_playing": any(e in speaker_entity_ids for e in home_state.get("media_playing", [])),
             "lights_on": room_lights,  # Room-specific lights, not whole-house
             "media_playing": home_state.get("media_playing", [])
         }
@@ -715,7 +716,7 @@ class JarvisCLI:
             "home_state": {
                 "lights_on": home_state.get("lights_on", []),
                 "lights_off": home_state.get("lights_off", []),
-                "music_playing": len(home_state.get("media_playing", [])) > 0,
+                "music_playing": any(e in speaker_entity_ids for e in home_state.get("media_playing", [])),
                 "media_players": home_state.get("media_playing", [])
             },
 
@@ -1438,7 +1439,14 @@ def get_config():
             "start": config.active_hours.start,
             "end": config.active_hours.end
         },
-        "cameras": {name: True for name in config.cameras.keys()}
+        "cameras": {
+            name: {
+                "entity_id": cam.entity_id,
+                "enabled": cam.enabled,
+                "motionSensor": cam.motion_sensor,
+            }
+            for name, cam in config.cameras.items()
+        }
     }
 
 

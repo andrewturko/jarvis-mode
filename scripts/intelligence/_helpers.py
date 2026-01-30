@@ -33,6 +33,20 @@ def get_capabilities():
     return load_json(CAPABILITIES_FILE)
 
 
+def get_speaker_entity_ids(capabilities=None):
+    """Return set of HA entity IDs that are actual speakers (not TVs)."""
+    if capabilities is None:
+        capabilities = get_capabilities()
+    ids = set()
+    for spk in capabilities.get("music", {}).get("speakers", {}).values():
+        if isinstance(spk, dict):
+            ids.add(spk.get("ha_entity", ""))
+        elif isinstance(spk, str):
+            ids.add(spk)
+    ids.discard("")
+    return ids
+
+
 def get_patterns():
     return load_json(PATTERNS_FILE)
 
