@@ -59,6 +59,31 @@ Full-featured UI for configuration and monitoring:
 - **Sonos**: Music control and favorites
 - **Any Clawdbot channel**: Telegram, Discord, iMessage, etc.
 
+### Dynamic Suggestion Catalog
+
+Suggestions auto-generate from your home's actual capabilities. When `refresh-inventory.py` discovers devices from Home Assistant, it updates `config/capabilities.json` and regenerates suggestion templates.
+
+**How it works:**
+
+```
+Life model (context → needs → capability types)
+    +
+Capabilities (what devices exist in your home)
+    +
+Human catalog (hand-authored suggestion templates)
+    ↓
+Generated suggestions fill gaps the human catalog doesn't cover
+```
+
+The life model defines that `gaming` needs `[entertainment, comfort]`, which maps to capability types `[tv, music, lighting, climate, shades]`. If your home has those devices and the human catalog doesn't have gaming entries, templates are auto-generated:
+- *"Want some music while you game?"*
+- *"TV for gaming?"*
+- *"Lights for gaming?"*
+
+Music favorites tagged with contexts (e.g., "Chill House Radio" → `guests_over`) get their own entries automatically.
+
+Generated entries have lower weight than hand-authored ones, so human entries always take priority. Add a hand-written entry for any context/capability and the generator stops filling that gap.
+
 ### Behavioral Learning
 
 Jarvis learns your patterns over time — no manual programming required.
@@ -195,8 +220,8 @@ Or I can just keep an eye on things."
 
 2. **Configure**
    ```bash
-   cp config.example.json config.json
-   # Edit config.json with your camera entities and sensors
+   cp config/config.example.json config/config.json
+   # Edit config/config.json with your camera entities and sensors
    ```
 
 3. **Register with Clawdbot** (auto-configures hooks + cron)
@@ -206,31 +231,31 @@ Or I can just keep an eye on things."
    This automatically:
    - Adds webhook handlers to Clawdbot config
    - Creates the polling cron job
-   - Uses `notifyChannel` from your config.json
+   - Uses `notifyChannel` from your config
 
 4. **Restart Clawdbot gateway** to apply hooks
    ```bash
    clawdbot gateway restart
    ```
 
-5. **Discover your devices**
+5. **Discover your devices** (also generates dynamic suggestion catalog)
    ```bash
    python3 scripts/refresh-inventory.py
    ```
 
 6. **Start the UI server**
    ```bash
-   ./serve-ui.sh
+   python3 scripts/jarvis_server.py
    # Access at http://localhost:8088
    ```
 
 7. **Optional: Home Assistant automation**
-   
-   Import `ha_automation.yaml` for instant alerts on person detection.
+
+   Import `config/ha_automation.yaml` for instant alerts on person detection.
 
 ## Configuration
 
-### config.json
+### config/config.json
 
 ```json
 {
@@ -353,15 +378,30 @@ jarvis.py cleanup             # Delete old snapshots
                     │
            ┌────────▼────────┐
            │   jarvis.py     │
-           │ (State engine)  │
+           │ (CLI + engine)  │
            └────────┬────────┘
                     │
     ┌───────────────┼───────────────┐
     │               │               │
 ┌───▼───┐     ┌─────▼─────┐   ┌─────▼─────┐
-│ Poll  │     │ Snapshot  │   │  Handle   │
-│ State │     │ + Vision  │   │Transitions│
-└───────┘     └───────────┘   └───────────┘
+│ Poll  │     │ Snapshot  │   │  Context  │
+│ State │     │ + Vision  │   │ Inference │
+└───────┘     └───────────┘   └─────┬─────┘
+                                    │
+                          ┌─────────▼─────────┐
+                          │  intelligence/    │
+                          │  ├ context        │
+                          │  ├ suggestions    │
+                          │  ├ silence logic  │
+                          │  └ observations   │
+                          └─────────┬─────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    │               │               │
+             ┌──────▼──────┐ ┌─────▼─────┐  ┌──────▼──────┐
+             │ Capabilities│ │  Catalog  │  │  Generated  │
+             │  (devices)  │ │ (human)   │  │  (auto)     │
+             └─────────────┘ └───────────┘  └─────────────┘
                     │
            ┌────────▼────────┐
            │  Home Assistant │
@@ -382,7 +422,7 @@ Voice control via UniFi camera microphones. Say "Hey Jarvis" to activate.
    pip install -r requirements.txt
    ```
 
-2. **Configure cameras** in `voice-config.json`:
+2. **Configure cameras** in `config/voice-config.json`:
    ```json
    {
      "unifi_protect": {
@@ -439,7 +479,7 @@ Camera Mic → RTSP → ffmpeg → Wake Word → STT → Clawdbot → TTS → So
 
 ### Adding New Rooms
 
-1. Add camera + sensor to `config.json`:
+1. Add camera + sensor to `config/config.json`:
    ```json
    "cameras": {
      "office": {
@@ -450,45 +490,92 @@ Camera Mic → RTSP → ffmpeg → Wake Word → STT → Clawdbot → TTS → So
    }
    ```
 
-2. Map lights in `scripts/jarvis.py` `room_lights_map`
+2. Refresh inventory — auto-discovers lights, adds to capabilities, regenerates suggestions:
+   ```bash
+   python3 scripts/refresh-inventory.py
+   ```
 
-3. Refresh inventory: `python3 scripts/refresh-inventory.py`
+### Adding Suggestion Templates
 
-### Adding New Auto-Actions
+Hand-authored suggestions go in `config/suggestion-catalog.json`. Add entries per context:
 
-Edit `handle_empty_room()` or `handle_occupied_room()` in `jarvis.py`:
-
-```python
-def handle_empty_room(room_name, dry_run=False):
-    # Add: pause music in empty room
-    # Add: set thermostat to eco
-    # Add: close shades at night
-    ...
+```json
+{
+  "action": "play_office_focus_music",
+  "type": "ambiance",
+  "intent": "offer",
+  "requires": {"capability": "music", "state": "music_not_playing"},
+  "priority": "low",
+  "base_weight": 1.0,
+  "cooldown_hours": 4,
+  "examples": ["Focus music while you work?", "Want something in the background?"]
+}
 ```
 
-### Custom Suggestion Logic
+For contexts you don't hand-author, `generate_suggestions.py` fills gaps automatically from capabilities + life-model. Hand-authored entries always take priority.
 
-Edit `handle_occupied_room()` to add context-aware suggestions:
+### Adding New Contexts
 
-```python
-def handle_occupied_room(room_name):
-    # Add: TV suggestions based on time
-    # Add: Meal-time suggestions
-    # Add: Weather-based recommendations
-    ...
+Add the context to `config/life-model.json` with signals, typical needs, and transitions. The suggestion generator will auto-create entries for it based on your home's capabilities.
+
+## Project Structure
+
+```
+jarvis-mode/
+├── config/                        # Configuration (checked into git)
+│   ├── config.json                  # Settings (cameras, intervals, toggles)
+│   ├── life-model.json              # Context definitions, needs, capability types
+│   ├── suggestion-catalog.json      # Hand-authored suggestion templates
+│   ├── capabilities.json            # Home device capabilities (auto-updated)
+│   ├── hooks.json                   # Clawdbot webhook definitions
+│   └── ha_automation.yaml           # Home Assistant automation for motion
+│
+├── data/                          # Runtime data (gitignored)
+│   ├── state.json                   # Current room states, observations
+│   ├── patterns.json                # Learned suggestion acceptance patterns
+│   ├── preferences.json             # User preferences (stated + observed)
+│   ├── generated-suggestions.json   # Auto-generated catalog entries
+│   ├── home-inventory.json          # Raw HA entity dump
+│   ├── events.db                    # Event history for pattern analysis
+│   └── snapshots/                   # Camera images (temporary)
+│
+├── scripts/                       # All Python source
+│   ├── jarvis.py                    # CLI + observation engine
+│   ├── jarvis_server.py             # Web UI + health API
+│   ├── life_context.py              # Facade over intelligence/
+│   ├── generate_suggestions.py      # Dynamic catalog generation
+│   ├── refresh-inventory.py         # HA entity discovery + capability update
+│   ├── core/                        # Foundation modules
+│   │   ├── paths.py                   # Single source of truth for all file paths
+│   │   ├── config.py                  # Config dataclasses
+│   │   ├── state_manager.py           # Atomic state file operations
+│   │   ├── logger.py                  # Structured logging
+│   │   └── metrics.py                 # Observability metrics
+│   ├── intelligence/                # Context inference engine
+│   │   ├── context_inference.py       # Activity/context detection
+│   │   ├── suggestion_engine.py       # Suggestion generation + filtering
+│   │   ├── silence_logic.py           # When to speak vs stay quiet
+│   │   ├── observation_tracker.py     # Observation recording
+│   │   └── activity_chains.py         # Multi-room activity chains
+│   └── services/                    # External integrations
+│       ├── ha_service.py              # Home Assistant API
+│       ├── preference_store.py        # Preference learning
+│       └── temporal_learner.py        # Time-based pattern learning
+│
+├── tests/                         # Pytest suite
+├── ui/                            # Web control panel
+├── voice/                         # Voice module (experimental)
+├── templates/                     # Hook message templates
+└── docs/                          # Documentation
 ```
 
 ## Documentation
 
-Comprehensive documentation is available in the [`docs/`](docs/) directory:
+- **[Skill Definition](SKILL.md)** - Skill capabilities, tone guide, and integration reference
+- **[What's New](docs/WHATS_NEW.md)** - Enhancement history
+- **[Testing Guide](docs/TESTING_GUIDE.md)** - Testing instructions
 
-- **[Skill Definition](SKILL.md)** - Skill capabilities and integration
-- **[What's New](docs/WHATS_NEW.md)** - See all enhancements from Phases 1-4
-- **[Testing Guide](docs/TESTING_GUIDE.md)** - Complete testing instructions
-- **[Phase 1 Complete](docs/PHASE_1_COMPLETE.md)** - Foundation implementation details
-- **[State Accuracy Fix](docs/STATE_ACCURACY_FIX.md)** - Technical deep dive on UI accuracy
-
-See the [docs/README.md](docs/README.md) for a complete documentation index.
+See [docs/README.md](docs/README.md) for the full index.
 
 ## Contributing
 
