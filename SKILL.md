@@ -52,7 +52,7 @@ If nothing is actionable, stay **completely silent** (HEARTBEAT_OK). If you spea
 
 ### Suggestion Types
 
-Based on `home-inventory.json`, you can offer:
+Based on `data/home-inventory.json`, you can offer:
 
 **Lighting:**
 - Adjust for time of day, activity, or ambiance
@@ -152,7 +152,7 @@ When checking a room:
 
 ## Updating Home Inventory
 
-Periodically refresh `home-inventory.json`:
+Periodically refresh `data/home-inventory.json`:
 ```bash
 # Get all entities
 curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/api/states" | jq '.[].entity_id'
@@ -260,24 +260,36 @@ These are pre-loaded (run `python3 scripts/services/preference_store.py seed`):
 
 ### Storage
 
-Preferences are stored in `preferences.json` — a flat JSON list of entries.
+Preferences are stored in `data/preferences.json` — a flat JSON list of entries.
 Human-readable, git-friendly, no database required.
 
 ## Files
 
-- `home-inventory.json` — Dynamic reference of all controllable entities and context rules
+**Config** (`config/`):
 - `config.json` — Settings (enabled, intervals, cameras)
+- `life-model.json` — Static life context definitions
+- `suggestion-catalog.json` — Suggestion templates
+- `capabilities.json` — Home device capabilities
+- `hooks.json` — Clawdbot webhook definitions
+
+**Data** (`data/` — gitignored):
 - `state.json` — Current state (last checks, observations, patterns)
 - `patterns.json` — Learned suggestion acceptance patterns
 - `preferences.json` — Learned user preferences (general-purpose memory)
 - `temporal-patterns.json` — Learned temporal activity patterns
-- `life-model.json` — Static life context definitions
-- `scripts/life_context.py` — Context inference and suggestion engine
-- `scripts/services/preference_store.py` — Preference learning store (CLI + library)
-- `scripts/services/temporal_learner.py` — Temporal pattern learning
-- `scripts/jarvis.py` — Observation engine
-- `scripts/jarvis_server.py` — Web UI + webhook server
-- `ui/index.html` — Control panel
+- `home-inventory.json` — Dynamic reference of all controllable entities
+- `events.db` — Event history for pattern analysis
+
+**Scripts** (`scripts/`):
+- `life_context.py` — Context inference facade (delegates to `intelligence/` package)
+- `intelligence/` — Context inference, suggestions, silence logic, observation tracking
+- `services/preference_store.py` — Preference learning store (CLI + library)
+- `services/temporal_learner.py` — Temporal pattern learning
+- `jarvis.py` — Observation engine
+- `jarvis_server.py` — Web UI + webhook server
+- `core/paths.py` — Centralized path constants
+
+**UI**: `ui/index.html` — Control panel
 
 ## Privacy
 
