@@ -604,9 +604,17 @@ class JarvisCLI:
         capabilities = life_context.get_capabilities()
         speaker_entity_ids = life_context.get_speaker_entity_ids(capabilities)
         # Pass home_state so suggestions are state-aware (skip music if playing, etc.)
+        # Enrich room_lights with brightness data from home_state
+        brightness_map = {}
+        for item in home_state.get("lights_on", []):
+            if isinstance(item, dict):
+                brightness_map[item["entity_id"]] = item
+        room_lights_enriched = [
+            brightness_map.get(eid, eid) for eid in room_lights
+        ]
         suggestion_home_state = {
             "music_playing": any(e in speaker_entity_ids for e in home_state.get("media_playing", [])),
-            "lights_on": room_lights,  # Room-specific lights, not whole-house
+            "lights_on": room_lights_enriched,  # Room-specific lights with brightness
             "media_playing": home_state.get("media_playing", []),
             "covers_open": home_state.get("covers_open", []),
             "covers_closed": home_state.get("covers_closed", []),
@@ -709,7 +717,7 @@ class JarvisCLI:
                 "occupancy_note": self._occupancy_note(occupancy_source, snapshot),
                 "motion_sensor_says": "motion" if motion_detected else "no_motion",
                 "occupancy_duration_minutes": occupancy_duration or 0,
-                "lights_on": room_lights,
+                "lights_on": room_lights_enriched,
                 "recent_activity": activity_timeline[:5]
             },
 

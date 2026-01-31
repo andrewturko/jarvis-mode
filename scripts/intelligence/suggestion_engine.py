@@ -38,13 +38,35 @@ except ImportError:
 # Generic state requirement resolver
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# helpers for the lights_on format (list of dicts with entity_id + brightness)
+# ---------------------------------------------------------------------------
+
+def _light_eid(item):
+    """Extract entity_id from a lights_on entry (dict or legacy string)."""
+    return item["entity_id"] if isinstance(item, dict) else item
+
+
+def _light_brightness_pct(item):
+    """Extract brightness_pct from a lights_on entry (None if unavailable)."""
+    return item.get("brightness_pct") if isinstance(item, dict) else None
+
+
+def _avg_brightness_pct(lights_on: list) -> Optional[float]:
+    """Average brightness % of all lights that report it. None if no data."""
+    vals = [_light_brightness_pct(l) for l in lights_on]
+    vals = [v for v in vals if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
 # Legacy string tokens → simple lambdas for backward compatibility
 _LEGACY_STATE_CHECKS = {
     "music_not_playing": lambda hs, **_: not hs.get("music_playing", False),
     "media_not_playing": lambda hs, **_: not any(hs.get("media_playing", [])),
-    "kitchen_lights_off": lambda hs, **_: not any("kitchen" in l for l in hs.get("lights_on", [])),
+    "kitchen_lights_off": lambda hs, **_: not any("kitchen" in _light_eid(l) for l in hs.get("lights_on", [])),
     "room_lights_off": lambda hs, **_: len(hs.get("lights_on", [])) == 0,
     "room_lights_on": lambda hs, **_: len(hs.get("lights_on", [])) > 0,
+    "room_lights_not_bright": lambda hs, **_: (_avg_brightness_pct(hs.get("lights_on", [])) or 0) < 80,
 }
 
 
@@ -92,8 +114,8 @@ def _get_capability_entities(capabilities: dict, cap_type: str, room: str = None
 def _build_entity_state_map(home_state: dict) -> dict:
     """Build {entity_id: state_string} from the flat home_state lists."""
     states = {}
-    for eid in home_state.get("lights_on", []):
-        states[eid] = "on"
+    for item in home_state.get("lights_on", []):
+        states[_light_eid(item)] = "on"
     for eid in home_state.get("lights_off", []):
         states[eid] = "off"
     for eid in home_state.get("media_playing", []):
@@ -267,6 +289,16 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
         # Check state requirement (generic resolver — handles both legacy strings and structured dicts)
         if state_req and not _check_state_requirement(state_req, home_state, current_room, capabilities):
             continue
+
+        # Brightness-aware filtering: skip "brighten/adjust lights" suggestions
+        # when lights are already at ≥80% brightness.
+        if cap_req == "lighting" and lights_on:
+            avg_bright = _avg_brightness_pct(lights_on)
+            if avg_bright is not None and avg_bright >= 80:
+                action = entry.get("action", "")
+                # Only skip "increase" suggestions — dimming/mood suggestions are fine
+                if any(kw in action for kw in ("bright", "focus", "bump", "adjust", "welcoming")):
+                    continue
 
         # Check weekday_only
         if entry.get("weekday_only") and time_ctx.get("is_weekend", False):

@@ -45,8 +45,45 @@ def get_entities():
     return json.loads(result.stdout)
 
 
+def _extract_features(entity):
+    """Extract stable device features/schema from HA entity attributes.
+
+    These are capabilities that don't change at runtime (what it *can* do),
+    not transient state (what it's doing right now).
+    """
+    attrs = entity.get("attributes", {})
+    features = {}
+
+    # Common
+    if attrs.get("friendly_name"):
+        features["friendly_name"] = attrs["friendly_name"]
+    if attrs.get("device_class"):
+        features["device_class"] = attrs["device_class"]
+    if attrs.get("supported_features") is not None:
+        features["supported_features"] = attrs["supported_features"]
+
+    # Lights: color modes define what the light can do
+    if entity.get("entity_id", "").startswith("light."):
+        modes = attrs.get("supported_color_modes", [])
+        features["color_modes"] = modes
+        features["dimmable"] = "brightness" in modes or "color_temp" in modes or "hs" in modes or "xy" in modes
+        features["color_temp"] = "color_temp" in modes
+        features["color"] = "hs" in modes or "xy" in modes or "rgb" in modes
+
+    # Media players: device class + source list
+    if entity.get("entity_id", "").startswith("media_player."):
+        if attrs.get("source_list"):
+            features["source_list"] = attrs["source_list"]
+
+    # Covers: position support
+    if entity.get("entity_id", "").startswith("cover."):
+        features["has_position"] = attrs.get("current_position") is not None
+
+    return features
+
+
 def categorize_entities(entities):
-    """Categorize entities by domain and area."""
+    """Categorize entities by domain and area, preserving device features."""
     categories = {
         "lights": [],
         "media_players": [],
@@ -65,10 +102,18 @@ def categorize_entities(entities):
         "other": {}  # domain -> [entity_ids] for any domain not above
     }
 
+    # entity_id -> features dict (stable device capabilities)
+    features_map = {}
+
     for entity in entities:
         eid = entity.get("entity_id", "")
         if not eid:
             continue
+
+        # Extract features for every entity we care about
+        feats = _extract_features(entity)
+        if feats:
+            features_map[eid] = feats
 
         if eid.startswith("light."):
             categories["lights"].append(eid)
@@ -99,6 +144,7 @@ def categorize_entities(entities):
             domain = eid.split('.')[0]
             categories["other"].setdefault(domain, []).append(eid)
 
+    categories["_features"] = features_map
     return categories
 
 
@@ -335,6 +381,27 @@ def update_capabilities(categories):
             else:
                 section.setdefault(key, []).append(eid)
             updates.append(f"  {domain}/{key}: +{eid}")
+
+    # --- Entity features (stable device schema from HA attributes) ---
+    features_map = categories.get("_features", {})
+    if features_map:
+        # Only store features for entities that appear in capabilities
+        all_cap_entities = set()
+        _collect_ids(caps, all_cap_entities)
+
+        relevant_features = {
+            eid: feats for eid, feats in features_map.items()
+            if eid in all_cap_entities
+        }
+
+        old_features = caps.get("_entity_features", {})
+        new_count = len(relevant_features) - len(old_features)
+        caps["_entity_features"] = relevant_features
+
+        if new_count > 0:
+            updates.append(f"  _entity_features: {len(relevant_features)} entities ({new_count} new)")
+        elif relevant_features != old_features:
+            updates.append(f"  _entity_features: updated ({len(relevant_features)} entities)")
 
     # Update timestamp
     caps['_last_updated'] = datetime.now().isoformat()

@@ -325,7 +325,13 @@ class HAService:
 
             if eid.startswith("light."):
                 if state == "on":
-                    home_state["lights_on"].append(eid)
+                    attrs = entity.get("attributes", {})
+                    home_state["lights_on"].append({
+                        "entity_id": eid,
+                        "brightness": attrs.get("brightness"),       # 0-255
+                        "brightness_pct": round(attrs["brightness"] / 255 * 100) if attrs.get("brightness") is not None else None,
+                        "color_temp": attrs.get("color_temp"),
+                    })
                 else:
                     home_state["lights_off"].append(eid)
             elif eid.startswith("media_player."):
