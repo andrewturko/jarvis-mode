@@ -134,6 +134,8 @@ def run_scenario(scenario: dict) -> List[StepResult]:
                     if "fatigue_state" in sc:
                         patterns["fatigue_state"] = sc["fatigue_state"]
                     return patterns
+                if "external_context.json" in path_str:
+                    return {}  # Don't leak real external context into tests
                 return original_load(path)
             return mock_load
 

@@ -1,115 +1,139 @@
 """
-Provider registry — auto-discovers and orchestrates all providers.
+Provider registry — auto-discovers and runs all providers.
 
-Public API:
-    refresh_all(force=False)   — refresh stale (or all) providers, write cache
-    refresh_stale()            — alias for refresh_all(force=False)
-    get_context()              — read merged context from cache
-    list_providers()           — print discovered providers to stdout
+Scans ``providers/`` for subclasses of ``ExternalContextProvider``,
+refreshes whichever are stale, and writes the merged cache.
 """
 
 from __future__ import annotations
 
 import importlib
-import inspect
 import pkgutil
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Type
 
 from external_context.base_provider import ExternalContextProvider
 from external_context.cache import (
-    EMPTY_CONTEXT,
-    is_provider_stale,
-    read_cache,
-    write_cache,
-    get_context,
+    read_cache, write_cache, is_provider_stale,
 )
 
 # ---------------------------------------------------------------------------
-# Discovery
+# Auto-discovery
 # ---------------------------------------------------------------------------
 
+_PROVIDERS_PKG = "external_context.providers"
+
+
 def _discover_providers() -> List[Type[ExternalContextProvider]]:
-    """Scan the ``providers/`` package and return all provider classes."""
-    providers_pkg = Path(__file__).resolve().parent / "providers"
+    """Import every module in ``providers/`` and collect provider classes."""
+    providers_dir = Path(__file__).resolve().parent / "providers"
     found: List[Type[ExternalContextProvider]] = []
 
-    for importer, modname, _ispkg in pkgutil.iter_modules([str(providers_pkg)]):
+    for _importer, mod_name, _is_pkg in pkgutil.iter_modules([str(providers_dir)]):
+        if mod_name.startswith("_"):
+            continue
+        fqn = f"{_PROVIDERS_PKG}.{mod_name}"
         try:
-            mod = importlib.import_module(f"external_context.providers.{modname}")
+            mod = importlib.import_module(fqn)
         except Exception as exc:
-            print(f"[external_context] failed to import provider {modname}: {exc}", file=sys.stderr)
+            print(f"[external_context] Failed to import {fqn}: {exc}",
+                  file=sys.stderr)
             continue
 
-        for _attr_name, obj in inspect.getmembers(mod, inspect.isclass):
-            if (
-                issubclass(obj, ExternalContextProvider)
-                and obj is not ExternalContextProvider
-                and getattr(obj, "name", "")
-            ):
+        for attr_name in dir(mod):
+            obj = getattr(mod, attr_name)
+            if (isinstance(obj, type)
+                    and issubclass(obj, ExternalContextProvider)
+                    and obj is not ExternalContextProvider
+                    and getattr(obj, "name", "")):
                 found.append(obj)
 
     return found
+
+
+def _instantiate_providers() -> List[ExternalContextProvider]:
+    """Return one instance of each discovered provider."""
+    return [cls() for cls in _discover_providers()]
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def refresh_all(force: bool = False) -> Dict:
-    """Refresh providers whose cache is stale (or all if *force*).
+def refresh_stale() -> Dict:
+    """Refresh only providers whose cache has expired, then write merged cache.
 
-    Returns the full merged context dict (also written to cache).
+    Returns the full cache dict (same shape as external_context.json).
     """
-    provider_classes = _discover_providers()
+    return _do_refresh(force=False)
+
+
+def refresh_all() -> Dict:
+    """Force-refresh every provider regardless of staleness."""
+    return _do_refresh(force=True)
+
+
+def _do_refresh(force: bool) -> Dict:
+    """Core refresh loop."""
     cache = read_cache()
-    providers_section = cache.get("providers", {})
+    providers_cache = cache.get("providers", {})
+    any_updated = False
 
-    for cls in provider_classes:
-        provider = cls()
+    for provider in _instantiate_providers():
         name = provider.name
+        stale = is_provider_stale(name, provider.stale_after_minutes)
 
-        if not force and not is_provider_stale(name, provider.stale_after_minutes):
-            continue  # still fresh — skip
+        if not force and not stale:
+            continue  # this provider's data is still fresh
 
+        # --- refresh this provider ---
         try:
             data = provider.refresh()
-        except Exception as exc:
-            print(f"[external_context] provider '{name}' refresh failed: {exc}", file=sys.stderr)
-            continue
+        except Exception:
+            print(f"[external_context] {name}.refresh() failed:",
+                  file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            data = {}
 
         try:
-            sigs = provider.signals(data)
-        except Exception as exc:
-            print(f"[external_context] provider '{name}' signals() failed: {exc}", file=sys.stderr)
-            sigs = []
+            signals = provider.signals(data)
+        except Exception:
+            print(f"[external_context] {name}.signals() failed:",
+                  file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            signals = []
 
         try:
-            narr = provider.narrative(data)
-        except Exception as exc:
-            print(f"[external_context] provider '{name}' narrative() failed: {exc}", file=sys.stderr)
-            narr = ""
+            narrative = provider.narrative(data)
+        except Exception:
+            print(f"[external_context] {name}.narrative() failed:",
+                  file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            narrative = ""
 
-        providers_section[name] = {
+        providers_cache[name] = {
             "refreshed_at": datetime.now().isoformat(),
             "stale_after_minutes": provider.stale_after_minutes,
             "data": data,
-            "signals": sigs,
-            "narrative": narr,
+            "signals": signals,
+            "narrative": narrative,
         }
+        any_updated = True
 
-    # Merge top-level signals + narrative from all providers
+    # --- merge all providers into top-level fields ---
     all_signals: List[str] = []
-    narrative_parts: List[str] = []
-    for _name, entry in providers_section.items():
+    all_narratives: List[str] = []
+
+    for entry in providers_cache.values():
         all_signals.extend(entry.get("signals", []))
         narr = entry.get("narrative", "")
         if narr:
-            narrative_parts.append(narr)
+            all_narratives.append(narr)
 
-    # Deduplicate signals preserving order
+    # Deduplicate signals while preserving order
     seen = set()
     deduped: List[str] = []
     for s in all_signals:
@@ -117,28 +141,37 @@ def refresh_all(force: bool = False) -> Dict:
             seen.add(s)
             deduped.append(s)
 
-    result = {
+    merged = {
         "generated_at": datetime.now().isoformat(),
         "signals": deduped,
-        "providers": providers_section,
-        "narrative": " ".join(narrative_parts),
+        "providers": providers_cache,
+        "narrative": " ".join(all_narratives),
     }
 
-    write_cache(result)
+    if any_updated or not cache.get("generated_at"):
+        write_cache(merged)
+
+    return merged
+
+
+def list_providers() -> List[Dict]:
+    """Return metadata about each discovered provider + cache status."""
+    cache = read_cache()
+    providers_cache = cache.get("providers", {})
+    result = []
+
+    for provider in _instantiate_providers():
+        entry = providers_cache.get(provider.name, {})
+        refreshed_at = entry.get("refreshed_at")
+        stale = is_provider_stale(provider.name, provider.stale_after_minutes)
+
+        result.append({
+            "name": provider.name,
+            "stale_after_minutes": provider.stale_after_minutes,
+            "refreshed_at": refreshed_at,
+            "is_stale": stale,
+            "signal_count": len(entry.get("signals", [])),
+            "narrative": entry.get("narrative", ""),
+        })
+
     return result
-
-
-def refresh_stale() -> Dict:
-    """Convenience: refresh only stale providers."""
-    return refresh_all(force=False)
-
-
-def list_providers() -> None:
-    """Print discovered providers to stdout."""
-    provider_classes = _discover_providers()
-    if not provider_classes:
-        print("No providers discovered.")
-        return
-    for cls in provider_classes:
-        p = cls()
-        print(f"  {p.name:20s}  stale_after={p.stale_after_minutes}m")
