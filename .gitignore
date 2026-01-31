@@ -1,8 +1,9 @@
 # Runtime data directory (personal activity, state, learned patterns)
 data/
 
-# Logs
-logs/
+# Logs (keep directory via .gitkeep)
+logs/*
+!logs/.gitkeep
 
 # User-specific config (generated/configured per home)
 config/config.json
