@@ -31,6 +31,10 @@ EVENTS_DB = DATA_DIR / "events.db"
 GENERATED_SUGGESTIONS_FILE = DATA_DIR / "generated-suggestions.json"
 EXTERNAL_CONTEXT_FILE = DATA_DIR / "external_context.json"
 
+# --- Content curation ---
+INTEREST_PROFILE_FILE = CONFIG_DIR / "interest-profile.json"
+CONTENT_HISTORY_FILE = DATA_DIR / "content-history.json"
+
 # --- Directories ---
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 LOG_DIR = DATA_DIR / "logs"

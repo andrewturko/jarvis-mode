@@ -259,6 +259,57 @@ class JarvisCLI:
         except Exception:
             return None
 
+    def _get_content_digest(self, context_inference: dict) -> dict:
+        """Get curated content digest for morning contexts.
+
+        Only returns content when the inferred context is a morning context
+        (waking_up, morning_routine). Returns None otherwise.
+        """
+        inferred = context_inference.get("context", "")
+
+        try:
+            from core.paths import INTEREST_PROFILE_FILE
+            profile = json.load(open(INTEREST_PROFILE_FILE))
+            morning_contexts = profile.get("delivery", {}).get(
+                "morning_contexts", ["waking_up", "morning_routine"]
+            )
+            digest_count = profile.get("delivery", {}).get("morning_digest_count", 5)
+        except Exception:
+            morning_contexts = ["waking_up", "morning_routine"]
+            digest_count = 5
+
+        if inferred not in morning_contexts:
+            return None
+
+        try:
+            from intelligence.content_curator import get_curated_content
+            items = get_curated_content(mode="digest", max_items=digest_count)
+
+            if not items:
+                return None
+
+            saved_count = sum(1 for i in items if i.get("instapaper_saved"))
+
+            return {
+                "items": [
+                    {
+                        "id": i.get("id"),
+                        "title": i.get("title"),
+                        "url": i.get("url"),
+                        "source_label": i.get("source_label"),
+                        "score": i.get("_score"),
+                        "instapaper_saved": i.get("instapaper_saved", False),
+                        "matched_topics": i.get("_matched_topics", []),
+                    }
+                    for i in items
+                ],
+                "count": len(items),
+                "instapaper_saved_count": saved_count,
+            }
+        except Exception as e:
+            logger.debug("content_digest_failed", error=str(e))
+            return None
+
     def run(self, args):
         """
         Run CLI command.
@@ -318,6 +369,14 @@ class JarvisCLI:
                 self.cmd_events(args)
             elif cmd == "activity":
                 self.cmd_activity()
+            elif cmd == "digest":
+                self.cmd_digest(args)
+            elif cmd == "curate":
+                self.cmd_curate(args)
+            elif cmd == "content-feedback":
+                self.cmd_content_feedback(args)
+            elif cmd == "content-stats":
+                self.cmd_content_stats()
             else:
                 print(f"Unknown command: {cmd}", file=sys.stderr)
                 self.print_usage()
@@ -353,6 +412,10 @@ class JarvisCLI:
         print("  events [--hours N]          View collected HA events")
         print("  cleanup                     Delete old snapshots")
         print("  setup                       Self-register with OpenClaw")
+        print("  digest [--dry-run] [--count N]  Generate content digest")
+        print("  curate [--dry-run]          Check for notable real-time content")
+        print("  content-feedback <id> <action>  Record content engagement (saved|clicked|dismissed)")
+        print("  content-stats               View content curation statistics")
 
     def cmd_status(self):
         """Get full Jarvis status."""
@@ -768,7 +831,11 @@ class JarvisCLI:
             "recent_messages": [
                 {"time": e.get("timestamp", "")[:16], "message": e.get("message", "")}
                 for e in life_context.get_recently_sent_suggestions(hours=4)
-            ][-5:]
+            ][-5:],
+
+            # Content digest — included for morning contexts so agent can
+            # fold interesting articles into the morning message
+            "content_digest": self._get_content_digest(context_inference),
         }
 
         # Log this decision to the audit trail (Phase 3.4)
@@ -882,6 +949,31 @@ class JarvisCLI:
             pass
 
         result = self.occupancy_service.poll_occupancy()
+
+        # Content curation check — piggyback on poll cycle for real-time drops
+        try:
+            from intelligence.content_curator import get_curated_content, decay_learned_weights
+            realtime_items = get_curated_content(mode="realtime")
+            if realtime_items:
+                result["content_drop"] = {
+                    "items": [
+                        {
+                            "id": i.get("id"),
+                            "title": i.get("title"),
+                            "url": i.get("url"),
+                            "source_label": i.get("source_label"),
+                            "score": i.get("_score"),
+                            "instapaper_saved": i.get("instapaper_saved", False),
+                        }
+                        for i in realtime_items
+                    ],
+                    "count": len(realtime_items),
+                }
+            # Periodic weight decay
+            decay_learned_weights()
+        except Exception as e:
+            logger.debug("content_poll_check_failed", error=str(e))
+
         print(json.dumps(result, indent=2))
 
         # Run periodic maintenance (snapshot cleanup, DB pruning)
@@ -1352,6 +1444,107 @@ class JarvisCLI:
             logger.error("setup_failed", error=str(e), exc_info=True)
             print(json.dumps({"success": False, "error": str(e)}))
             sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Content curation commands
+    # ------------------------------------------------------------------
+
+    def cmd_digest(self, args):
+        """Generate and display curated content digest."""
+        dry_run = "--dry-run" in args
+        count = 5
+        for i, a in enumerate(args):
+            if a == "--count" and i + 1 < len(args):
+                try:
+                    count = int(args[i + 1])
+                except ValueError:
+                    pass
+
+        from intelligence.content_curator import get_curated_content
+
+        items = get_curated_content(mode="digest", max_items=count)
+
+        if dry_run:
+            # Show scored items without saving to Instapaper or recording delivery
+            print(json.dumps({
+                "dry_run": True,
+                "items": [
+                    {
+                        "id": i.get("id"),
+                        "title": i.get("title"),
+                        "url": i.get("url"),
+                        "source_label": i.get("source_label"),
+                        "score": i.get("_score"),
+                        "matched_topics": i.get("_matched_topics", []),
+                    }
+                    for i in items
+                ],
+                "count": len(items),
+            }, indent=2))
+        else:
+            saved_count = sum(1 for i in items if i.get("instapaper_saved"))
+            print(json.dumps({
+                "items": [
+                    {
+                        "id": i.get("id"),
+                        "title": i.get("title"),
+                        "url": i.get("url"),
+                        "source_label": i.get("source_label"),
+                        "score": i.get("_score"),
+                        "instapaper_saved": i.get("instapaper_saved", False),
+                    }
+                    for i in items
+                ],
+                "count": len(items),
+                "instapaper_saved_count": saved_count,
+            }, indent=2))
+
+    def cmd_curate(self, args):
+        """Check for notable content worth a real-time drop."""
+        dry_run = "--dry-run" in args
+
+        from intelligence.content_curator import get_curated_content
+
+        items = get_curated_content(mode="realtime")
+
+        result = {
+            "dry_run": dry_run,
+            "items": [
+                {
+                    "id": i.get("id"),
+                    "title": i.get("title"),
+                    "url": i.get("url"),
+                    "source_label": i.get("source_label"),
+                    "score": i.get("_score"),
+                    "instapaper_saved": i.get("instapaper_saved", False),
+                }
+                for i in items
+            ],
+            "count": len(items),
+        }
+        print(json.dumps(result, indent=2))
+
+    def cmd_content_feedback(self, args):
+        """Record feedback on a delivered content item."""
+        if len(args) < 4:
+            print(json.dumps({"error": "Usage: content-feedback <content_id> <saved|clicked|dismissed>"}))
+            sys.exit(1)
+
+        content_id = args[2]
+        action = args[3]
+
+        if action not in ("saved", "clicked", "dismissed", "ignored"):
+            print(json.dumps({"error": f"Invalid action: {action}. Use saved|clicked|dismissed|ignored"}))
+            sys.exit(1)
+
+        from intelligence.content_curator import record_content_feedback
+        record_content_feedback(content_id, action)
+        print(json.dumps({"recorded": True, "content_id": content_id, "action": action}))
+
+    def cmd_content_stats(self):
+        """View content curation statistics."""
+        from intelligence.content_curator import get_content_stats
+        print(json.dumps(get_content_stats(), indent=2))
 
 
 # Module-level functions for jarvis_server.py compatibility

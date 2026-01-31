@@ -1,0 +1,250 @@
+{
+  "_description": "User interest profile for content curation. Static identity + learned weights.",
+  "identity": {
+    "description": "Software engineer and startup founder based in the Pacific Northwest. Interested in AI/ML, developer tools, cooking, architecture, design, and travel.",
+    "professional_domains": [
+      "software_engineering",
+      "startups",
+      "ai_ml",
+      "product_design"
+    ],
+    "personal_interests": [
+      "cooking",
+      "architecture",
+      "travel",
+      "photography",
+      "fitness"
+    ],
+    "locations": [
+      "Seattle",
+      "Bellevue",
+      "Pacific Northwest"
+    ]
+  },
+  "topics": {
+    "ai_ml": {
+      "keywords": [
+        "artificial intelligence",
+        "machine learning",
+        "LLM",
+        "GPT",
+        "Claude",
+        "transformer",
+        "neural network",
+        "deep learning",
+        "AI safety",
+        "AGI",
+        "Anthropic",
+        "OpenAI",
+        "diffusion",
+        "generative AI",
+        "foundation model",
+        "fine-tuning",
+        "RAG",
+        "embedding"
+      ],
+      "weight": 1.0,
+      "sources_bonus": [
+        "hacker_news",
+        "rss"
+      ]
+    },
+    "software_engineering": {
+      "keywords": [
+        "programming",
+        "rust",
+        "python",
+        "typescript",
+        "systems design",
+        "distributed systems",
+        "database",
+        "API design",
+        "devtools",
+        "developer experience",
+        "open source",
+        "compiler",
+        "performance",
+        "architecture"
+      ],
+      "weight": 0.9,
+      "sources_bonus": [
+        "hacker_news"
+      ]
+    },
+    "startups": {
+      "keywords": [
+        "startup",
+        "fundraising",
+        "YC",
+        "Y Combinator",
+        "venture capital",
+        "founder",
+        "product-market fit",
+        "growth",
+        "seed round",
+        "Series A",
+        "bootstrapping"
+      ],
+      "weight": 0.8,
+      "sources_bonus": [
+        "hacker_news",
+        "reddit"
+      ]
+    },
+    "design": {
+      "keywords": [
+        "UI design",
+        "UX",
+        "architecture",
+        "industrial design",
+        "typography",
+        "interior design",
+        "product design",
+        "Figma",
+        "design systems"
+      ],
+      "weight": 0.7,
+      "sources_bonus": []
+    },
+    "cooking": {
+      "keywords": [
+        "recipe",
+        "cooking technique",
+        "restaurant",
+        "food science",
+        "kitchen",
+        "baking",
+        "fermentation",
+        "sous vide",
+        "Serious Eats",
+        "Kenji"
+      ],
+      "weight": 0.6,
+      "sources_bonus": [
+        "reddit",
+        "rss"
+      ]
+    },
+    "science": {
+      "keywords": [
+        "physics",
+        "astronomy",
+        "biology",
+        "climate",
+        "research paper",
+        "discovery",
+        "space",
+        "quantum",
+        "neuroscience"
+      ],
+      "weight": 0.5,
+      "sources_bonus": []
+    },
+    "home_automation": {
+      "keywords": [
+        "home assistant",
+        "smart home",
+        "automation",
+        "IoT",
+        "Zigbee",
+        "Matter",
+        "HomeKit",
+        "Lutron",
+        "Sonos"
+      ],
+      "weight": 0.6,
+      "sources_bonus": [
+        "reddit",
+        "hacker_news"
+      ]
+    }
+  },
+  "anti_topics": {
+    "keywords": [
+      "celebrity gossip",
+      "reality TV",
+      "sports scores",
+      "crypto pump",
+      "meme stocks",
+      "NFT",
+      "clickbait",
+      "listicle"
+    ],
+    "penalty": -0.8
+  },
+  "source_configs": {
+    "hacker_news": {
+      "enabled": true,
+      "min_points": 50,
+      "fetch_count": 30
+    },
+    "reddit": {
+      "enabled": true,
+      "subreddits": [
+        "programming",
+        "machinelearning",
+        "experienceddevs",
+        "Cooking",
+        "homeautomation"
+      ],
+      "min_upvotes": 100,
+      "fetch_count": 20
+    },
+    "rss": {
+      "enabled": true,
+      "feeds": [
+        {
+          "url": "https://simonwillison.net/atom/everything/",
+          "label": "Simon Willison",
+          "trust": 0.9
+        },
+        {
+          "url": "https://danluu.com/atom.xml",
+          "label": "Dan Luu",
+          "trust": 0.9
+        },
+        {
+          "url": "https://www.seriouseats.com/feed",
+          "label": "Serious Eats",
+          "trust": 0.7
+        },
+        {
+          "url": "https://blog.pragmaticengineer.com/rss/",
+          "label": "Pragmatic Engineer",
+          "trust": 0.85
+        }
+      ]
+    },
+    "news_api": {
+      "enabled": false,
+      "api_key_env": "NEWS_API_KEY",
+      "domains": [
+        "arstechnica.com",
+        "theverge.com",
+        "wired.com"
+      ],
+      "fetch_count": 15
+    }
+  },
+  "delivery": {
+    "morning_digest_count": 5,
+    "realtime_max_per_day": 3,
+    "realtime_min_score": 0.75,
+    "realtime_min_hours_apart": 2,
+    "instapaper_auto_save_above": 0.6,
+    "morning_contexts": [
+      "waking_up",
+      "morning_routine"
+    ]
+  },
+  "learned_weights": {
+    "_description": "Dynamically updated by feedback loop. Maps topic -> adjustment factor.",
+    "adjustments": {
+      "ai_ml": 0.05
+    },
+    "source_adjustments": {
+      "rss": 0.025
+    },
+    "last_decay": null
+  }
+}
