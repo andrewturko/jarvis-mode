@@ -94,5 +94,37 @@
     "message": "Kitchen's looking pretty dim for a Friday dinner \u2014 want me to bump the lights up?",
     "action": "kitchen_bright_lights",
     "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T20:01:29.247147",
+    "type": "message",
+    "room": "dining",
+    "message": "Friday dinner vibes \u2014 want me to bring the chandelier down a notch?",
+    "action": "dim_dining_lights",
+    "context": "ambiance"
+  },
+  {
+    "timestamp": "2026-01-30T20:14:06.590612",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Friday dinner vibes \ud83d\udc4c Thermostat feeling alright, or want me to bump it up?",
+    "action": "gen_adjust_temperature_eating",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T21:01:20.171335",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Want me to send the vacuum through the kitchen once you're done at the counter?",
+    "action": "vacuum_kitchen",
+    "context": "cleanliness"
+  },
+  {
+    "timestamp": "2026-01-30T21:11:45.443340",
+    "type": "message",
+    "room": "living_room",
+    "message": "Post-dinner \u2014 should I kick off the dishwasher?",
+    "action": "run_dishwasher",
+    "context": "cleanliness"
   }
 ]

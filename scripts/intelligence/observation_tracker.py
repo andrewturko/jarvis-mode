@@ -10,7 +10,7 @@ from typing import Optional
 from intelligence._helpers import (
     load_json, save_json, get_life_model, get_patterns, save_patterns,
 )
-from core.paths import STATE_FILE
+from core.paths import STATE_FILE, SUGGESTION_CATALOG_FILE, GENERATED_SUGGESTIONS_FILE
 
 # Temporal learner — record observations for time-based learning
 try:
@@ -29,6 +29,17 @@ try:
     FATIGUE_TRACKING_AVAILABLE = True
 except ImportError:
     FATIGUE_TRACKING_AVAILABLE = False
+
+
+def _lookup_capability(action: str) -> Optional[str]:
+    """Look up the required capability for an action from suggestion catalogs."""
+    for catalog_file in [SUGGESTION_CATALOG_FILE, GENERATED_SUGGESTIONS_FILE]:
+        catalog = load_json(catalog_file)
+        for ctx_data in catalog.get("contexts", {}).values():
+            for entry in ctx_data.get("suggestions", []):
+                if entry.get("action") == action:
+                    return entry.get("requires", {}).get("capability")
+    return None
 
 
 def record_observation(context: str, room: str, observation: dict):
@@ -136,6 +147,12 @@ def record_sent_suggestion(room: str, suggestion: dict, message_sent: str = None
     suggestion_with_context = dict(suggestion)
     if inferred_context:
         suggestion_with_context["context"] = inferred_context
+
+    # Look up capability from catalogs if not already present
+    if "capability" not in suggestion_with_context:
+        capability = _lookup_capability(suggestion_with_context.get("action", ""))
+        if capability:
+            suggestion_with_context["capability"] = capability
 
     patterns["sent_suggestions"]["recent"].append({
         "timestamp": datetime.now().isoformat(),
@@ -295,6 +312,39 @@ def was_suggestion_sent_recently(suggestion_action: str, hours: int = None) -> b
             except (ValueError, AttributeError):
                 return True  # Can't parse timestamp, assume recent
 
+    return False
+
+
+def was_capability_sent_recently(capability: str, hours: float = 2) -> bool:
+    """
+    Check if ANY suggestion targeting a given capability was sent recently.
+
+    Prevents rapid-fire suggestions about the same thing (e.g., multiple
+    thermostat suggestions with different action names).
+
+    Args:
+        capability: The capability name (e.g., "climate", "music", "lighting")
+        hours: How far back to check
+
+    Returns:
+        True if any suggestion with this capability was sent within the window
+    """
+    recent = get_recently_sent_suggestions(hours=max(int(hours) + 1, 2))
+    cutoff = datetime.now() - timedelta(hours=hours)
+
+    for entry in recent:
+        suggestion = entry.get("suggestion", {})
+        sent_cap = suggestion.get("capability")
+        # Fall back to catalog lookup for older records without capability stored
+        if not sent_cap:
+            sent_cap = _lookup_capability(suggestion.get("action", ""))
+        if sent_cap == capability:
+            try:
+                ts = datetime.fromisoformat(entry.get("timestamp", ""))
+                if ts >= cutoff:
+                    return True
+            except (ValueError, AttributeError):
+                return True
     return False
 
 

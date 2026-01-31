@@ -7,7 +7,7 @@ arrival/settling state, and suggestion freshness.
 from datetime import datetime, timedelta
 
 from intelligence._helpers import get_life_model
-from intelligence.observation_tracker import was_suggestion_sent_recently
+from intelligence.observation_tracker import was_suggestion_sent_recently, was_capability_sent_recently
 
 # Fatigue tracker — adaptive silence based on engagement
 try:
@@ -98,16 +98,23 @@ def should_stay_silent(
     if not suggestions:
         return True, "No actionable suggestions"
 
-    # Rule 2.5: Filter out suggestions within their per-suggestion cooldown window
-    # Each suggestion's cooldown_hours is the minimum; fatigue backoff can extend it
+    # Rule 2.5: Filter out suggestions within their cooldown window
+    # Two levels: per-action (exact match) and per-capability (same device type)
+    # Fatigue backoff can extend either cooldown
     not_yet_sent = []
     for s in suggestions:
         action = s.get("action", "")
         cooldown = s.get("cooldown_hours", 4)
         if FATIGUE_TRACKING_AVAILABLE:
             cooldown = max(cooldown, _fatigue_cooldown(action))
-        if not was_suggestion_sent_recently(action, hours=cooldown):
-            not_yet_sent.append(s)
+        # Per-action cooldown (exact same suggestion)
+        if was_suggestion_sent_recently(action, hours=cooldown):
+            continue
+        # Per-capability cooldown (e.g., any climate suggestion suppresses all climate)
+        cap = s.get("requires", {}).get("capability")
+        if cap and was_capability_sent_recently(cap, hours=cooldown):
+            continue
+        not_yet_sent.append(s)
     if not not_yet_sent:
         return True, "All suggestions already sent to user recently"
 

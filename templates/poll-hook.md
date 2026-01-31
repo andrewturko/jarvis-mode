@@ -16,6 +16,7 @@ Read the suggestion's message_template and the message_generation_context to cra
 - Incorporate time of day naturally
 - For climate suggestions: check external_context.weather and home_state.climate before choosing direction. Cold outside → suggest warming; hot outside → suggest cooling. Let actual conditions drive the direction, not example phrasing.
 - If responsiveness is "low", keep it ultra-brief
+- Check recent_messages to see what you already said. Never reuse the same opener, structure, or phrasing.
 
 WHEN YOU DO SEND A MESSAGE:
 1. message(action='send', channel='telegram', target='8208227354', message='your response') - ONCE only

@@ -192,7 +192,9 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                 "environmental_cues": ["time_of_day", "duration_in_room"],
             },
         }
-        # Carry through any extra fields (capability, button)
+        # Carry through requires (for capability-level cooldown) and extra fields
+        if "requires" in entry:
+            suggestion["requires"] = entry["requires"]
         for extra_key in ["capability", "button"]:
             if extra_key in entry:
                 suggestion[extra_key] = entry[extra_key]

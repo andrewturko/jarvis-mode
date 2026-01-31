@@ -613,14 +613,9 @@ class JarvisCLI:
             context_inference, capabilities, home_state=suggestion_home_state
         )
 
-        # Filter out suggestions already sent recently (prevents duplicate messages)
-        recently_sent = life_context.get_recently_sent_suggestions(hours=2)
-        sent_actions = {entry.get("suggestion", {}).get("action") for entry in recently_sent}
-        suggestions_not_yet_sent = [s for s in suggestions if s.get("action") not in sent_actions]
-
-        # If some were filtered, note it
-        filtered_count = len(suggestions) - len(suggestions_not_yet_sent)
-        suggestions = suggestions_not_yet_sent
+        # Cooldown filtering is handled by silence_logic (per-suggestion + per-capability)
+        # Track count for context payload
+        pre_silence_count = len(suggestions)
 
         # Get learned patterns (file-based legacy)
         patterns = life_context.get_patterns()
@@ -743,8 +738,8 @@ class JarvisCLI:
             "decision_context": {
                 "should_speak": not should_be_silent,
                 "silence_reason": silence_reason if should_be_silent else None,
-                "suggestions_filtered": filtered_count,
-                "filtered_note": f"{filtered_count} suggestions already sent recently" if filtered_count > 0 else None,
+                "suggestions_filtered": pre_silence_count - len(suggestions),
+                "filtered_note": f"{pre_silence_count - len(suggestions)} suggestions filtered by cooldown" if pre_silence_count > len(suggestions) else None,
                 "last_decision_time": last_decision.get("timestamp") if last_decision else None,
                 "last_decision": last_decision.get("decision") if last_decision else None,
                 "quiet_mode": self.config.quiet_mode,
@@ -753,7 +748,13 @@ class JarvisCLI:
                 "recommended_action": suggestions[0].get("action") if suggestions and not should_be_silent else None
             },
 
-            "message_generation_context": self._build_message_generation_context(now, hour)
+            "message_generation_context": self._build_message_generation_context(now, hour),
+
+            # Recent messages for phrase deduplication — Claude can see what it already said
+            "recent_messages": [
+                {"time": e.get("timestamp", "")[:16], "message": e.get("message", "")}
+                for e in life_context.get_recently_sent_suggestions(hours=4)
+            ][-5:]
         }
 
         # Log this decision to the audit trail (Phase 3.4)
@@ -766,7 +767,7 @@ class JarvisCLI:
             "context_inferred": context_inference.get("context", "unknown"),
             "confidence": context_inference.get("confidence", 0),
             "suggestions_generated": len(suggestions),
-            "suggestions_filtered": filtered_count,
+            "suggestions_filtered": pre_silence_count - len(suggestions),
             "decision": "should_speak" if not should_be_silent else "silent",
             "reason": silence_reason if should_be_silent else "Context suggests speaking",
             "suggestions_offered": [s.get("action") for s in suggestions] if suggestions else []
