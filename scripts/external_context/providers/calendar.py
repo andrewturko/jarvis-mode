@@ -32,7 +32,7 @@ CAL_EVENTS_SCRIPT = _SKILL_DIR / "cal-events.sh"
 CAL_TIMEOUT = 15
 
 # Calendars to skip (read-only or noise)
-SKIP_CALENDARS = {"Birthdays", "US Holidays", "Siri Suggestions"}
+SKIP_CALENDARS = {"Birthdays", "US Holidays", "Siri Suggestions", "Scheduled Reminders"}
 
 # ---------------------------------------------------------------------------
 # Classification keywords

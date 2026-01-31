@@ -59,6 +59,38 @@ def _avg_brightness_pct(lights_on: list) -> Optional[float]:
     return sum(vals) / len(vals) if vals else None
 
 
+# Room groups — rooms that share a physical space get each other's capabilities
+_ROOM_GROUPS = {
+    "kitchen": ["kitchen", "living_room", "dining"],
+    "living_room": ["kitchen", "living_room", "dining"],
+    "dining": ["kitchen", "living_room", "dining"],
+}
+
+
+def _capability_in_room(capabilities: dict, cap_type: str, room: str) -> bool:
+    """Check if a capability has entities in the given room (or its room group).
+
+    Returns True for non-room-scoped capabilities (climate, vacuum) since
+    they're globally relevant regardless of which room you're in.
+    """
+    cap_data = capabilities.get(cap_type, {})
+
+    # Find the room-keyed structure (rooms, speakers, devices, indoor)
+    room_map = (
+        cap_data.get("rooms")
+        or cap_data.get("speakers")
+        or cap_data.get("indoor")
+        or cap_data.get("devices")
+    )
+    if not room_map or not isinstance(room_map, dict):
+        # Not room-scoped (climate, vacuum, appliances) — always relevant
+        return True
+
+    # Check current room + its group members
+    rooms_to_check = _ROOM_GROUPS.get(room, [room])
+    return any(r in room_map for r in rooms_to_check)
+
+
 # Legacy string tokens → simple lambdas for backward compatibility
 _LEGACY_STATE_CHECKS = {
     "music_not_playing": lambda hs, **_: not hs.get("music_playing", False),
@@ -282,9 +314,12 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
         cap_req = reqs.get("capability")
         state_req = reqs.get("state")
 
-        # Check capability requirement
+        # Check capability requirement — must exist AND be relevant to current room
         if cap_req and cap_req not in capabilities:
             continue
+        if cap_req and current_room:
+            if not _capability_in_room(capabilities, cap_req, current_room):
+                continue
 
         # Check state requirement (generic resolver — handles both legacy strings and structured dicts)
         if state_req and not _check_state_requirement(state_req, home_state, current_room, capabilities):
