@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2026-01-31T00:05:05.880625",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Bedroom shades still open \u2014 want me to drop them?",
+    "action": "close_shades_night",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-31T00:27:09.656167",
+    "type": "message",
+    "room": "dining",
+    "message": "Set everything to bedtime mode?",
+    "action": "gen_transition_lights_going_to_bed",
+    "context": "transition"
+  },
+  {
+    "timestamp": "2026-01-31T10:35:03.864493",
+    "type": "message",
+    "room": "living_room",
+    "message": "Rainy Saturday morning \u2014 want me to set some lights for you?",
+    "action": "gen_adjust_lights_gaming",
+    "context": "comfort"
+  }
+]

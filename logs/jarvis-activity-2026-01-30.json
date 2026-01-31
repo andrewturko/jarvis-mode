@@ -126,5 +126,53 @@
     "message": "Post-dinner \u2014 should I kick off the dishwasher?",
     "action": "run_dishwasher",
     "context": "cleanliness"
+  },
+  {
+    "timestamp": "2026-01-30T21:48:04.300845",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Getting close to 10 \u2014 want me to dim the kitchen down for the night?",
+    "action": "gen_transition_lights_post_meal",
+    "context": "transition"
+  },
+  {
+    "timestamp": "2026-01-30T21:59:01.306373",
+    "type": "message",
+    "room": "dining",
+    "message": "Shift to something cozier for the rest of the night? I can pull the dining lights down.",
+    "action": "gen_adjust_lights_post_meal",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T22:38:03.848931",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Kitchen's still pretty bright for this hour \u2014 want me to ease it down?",
+    "action": "dim_lights",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T22:47:48.876877",
+    "type": "message",
+    "room": "dining",
+    "message": "Thermostat good for the night, or want me to nudge it?",
+    "action": "gen_adjust_temperature_winding_down",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T22:57:53.294049",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Want me to close the bedroom shades before you two head up?",
+    "action": "gen_adjust_shades_winding_down",
+    "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-30T23:10:25.382590",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Heading to bed soon? I can kill the lights and music in one go.",
+    "action": "goodnight_routine",
+    "context": "transition"
   }
 ]

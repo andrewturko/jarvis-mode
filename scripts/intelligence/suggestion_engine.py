@@ -34,6 +34,128 @@ except ImportError:
     BASE_COOLDOWN_HOURS = 2.0
 
 
+# ---------------------------------------------------------------------------
+# Generic state requirement resolver
+# ---------------------------------------------------------------------------
+
+# Legacy string tokens → simple lambdas for backward compatibility
+_LEGACY_STATE_CHECKS = {
+    "music_not_playing": lambda hs, **_: not hs.get("music_playing", False),
+    "media_not_playing": lambda hs, **_: not any(hs.get("media_playing", [])),
+    "kitchen_lights_off": lambda hs, **_: not any("kitchen" in l for l in hs.get("lights_on", [])),
+    "room_lights_off": lambda hs, **_: len(hs.get("lights_on", [])) == 0,
+    "room_lights_on": lambda hs, **_: len(hs.get("lights_on", [])) > 0,
+}
+
+
+def _get_capability_entities(capabilities: dict, cap_type: str, room: str = None) -> list:
+    """Get entity IDs for a capability type, optionally scoped to a room."""
+    cap_data = capabilities.get(cap_type, {})
+
+    # shades/lighting: rooms/{room}/[entity_ids]
+    rooms = cap_data.get("rooms", {})
+    if rooms:
+        if room:
+            return list(rooms.get(room, []))
+        return [eid for eids in rooms.values() for eid in eids]
+
+    # music: speakers/{room}/{ha_entity}
+    speakers = cap_data.get("speakers", {})
+    if speakers:
+        if room:
+            spk = speakers.get(room, {})
+            eid = spk.get("ha_entity") if isinstance(spk, dict) else spk
+            return [eid] if eid else []
+        return [
+            (s.get("ha_entity") if isinstance(s, dict) else s)
+            for s in speakers.values()
+            if (isinstance(s, dict) and s.get("ha_entity")) or isinstance(s, str)
+        ]
+
+    # climate: thermostats/{name}/entity_id (not room-scoped)
+    thermostats = cap_data.get("thermostats", {})
+    if thermostats:
+        return list(thermostats.values())
+
+    # tv/vacuum/appliances: devices/{name}/{entity|c4_entity}
+    devices = cap_data.get("devices", {})
+    if devices:
+        entities = []
+        for dev in devices.values():
+            if isinstance(dev, dict):
+                entities.append(dev.get("entity") or dev.get("c4_entity") or "")
+        return [e for e in entities if e]
+
+    return []
+
+
+def _build_entity_state_map(home_state: dict) -> dict:
+    """Build {entity_id: state_string} from the flat home_state lists."""
+    states = {}
+    for eid in home_state.get("lights_on", []):
+        states[eid] = "on"
+    for eid in home_state.get("lights_off", []):
+        states[eid] = "off"
+    for eid in home_state.get("media_playing", []):
+        states[eid] = "playing"
+    for eid in home_state.get("covers_open", []):
+        states[eid] = "open"
+    for eid in home_state.get("covers_closed", []):
+        states[eid] = "closed"
+    for eid, data in home_state.get("climate", {}).items():
+        states[eid] = data.get("state", "unknown") if isinstance(data, dict) else str(data)
+    return states
+
+
+def _check_state_requirement(state_req, home_state: dict, current_room: str,
+                             capabilities: dict) -> bool:
+    """
+    Check if a state requirement is satisfied.
+
+    Returns True if the requirement IS met (suggestion should proceed).
+    Returns False if NOT met (suggestion should be skipped).
+
+    Handles two formats:
+    - Legacy string tokens: "music_not_playing", "room_lights_on", etc.
+    - Structured dicts: {"condition": "any_in_state", "target": "open", "scope": "_current"}
+    """
+    # Legacy string tokens
+    if isinstance(state_req, str):
+        check = _LEGACY_STATE_CHECKS.get(state_req)
+        return check(home_state) if check else True
+
+    # Structured requirement
+    condition = state_req.get("condition")
+    target = state_req.get("target")
+    scope = state_req.get("scope", "_current")
+    cap_type = state_req.get("capability")
+
+    # Resolve scope to room name
+    room = current_room if scope == "_current" else (None if scope == "_any" else scope)
+
+    # Get entity IDs in scope
+    entity_ids = _get_capability_entities(capabilities, cap_type, room) if cap_type else []
+    if not entity_ids:
+        return True  # No entities found — don't filter (capability check handles this)
+
+    # Look up actual states
+    state_map = _build_entity_state_map(home_state)
+    entity_states = [state_map.get(eid) for eid in entity_ids if eid in state_map]
+
+    if not entity_states:
+        return True  # Entities not in home_state — HA may not have returned them
+
+    # Evaluate condition
+    if condition == "any_in_state":
+        return any(s == target for s in entity_states)
+    elif condition == "none_in_state":
+        return not any(s == target for s in entity_states)
+    elif condition == "all_in_state":
+        return all(s == target for s in entity_states)
+
+    return True  # Unknown condition — don't filter
+
+
 def get_suggestions(context_result: dict, capabilities: dict = None,
                     recent_actions: list = None, home_state: dict = None) -> list:
     """
@@ -131,8 +253,7 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
         catalog_entries.extend(catalog_contexts.get(ck, {}).get("suggestions", []))
 
     # Filter by requirements (capabilities, home state)
-    kitchen_lights_on = any("kitchen" in l for l in lights_on)
-    room_lights_on = len(lights_on) > 0
+    current_room = home_state.get("current_room", "")
 
     for entry in catalog_entries:
         reqs = entry.get("requires", {})
@@ -143,16 +264,8 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
         if cap_req and cap_req not in capabilities:
             continue
 
-        # Check state requirements
-        if state_req == "music_not_playing" and music_playing:
-            continue
-        if state_req == "media_not_playing" and media_playing:
-            continue
-        if state_req == "kitchen_lights_off" and kitchen_lights_on:
-            continue
-        if state_req == "room_lights_off" and room_lights_on:
-            continue
-        if state_req == "room_lights_on" and not room_lights_on:
+        # Check state requirement (generic resolver — handles both legacy strings and structured dicts)
+        if state_req and not _check_state_requirement(state_req, home_state, current_room, capabilities):
             continue
 
         # Check weekday_only

@@ -263,6 +263,11 @@ CAPABILITY_TEMPLATES = {
         },
         "default_action": "adjust_shades",
         "state_requirement": {},
+        "state_requirement_by_need": {
+            "efficiency": {
+                "state": {"capability": "shades", "condition": "any_in_state", "target": "open", "scope": "_any"}
+            },
+        },
         "default_cooldown": 8,
         "example_fn": _shades_examples,
     },
@@ -317,7 +322,11 @@ def generate_entry(context_name, need, cap_type, cap_data, template):
         "_generation_source": f"{context_name}/{need}/{cap_type}",
     }
 
-    state_req = template.get("state_requirement", {})
+    # Per-need state requirement takes priority over default
+    state_req = (
+        template.get("state_requirement_by_need", {}).get(need)
+        or template.get("state_requirement", {})
+    )
     if state_req:
         entry["requires"].update(state_req)
 

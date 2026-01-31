@@ -607,7 +607,11 @@ class JarvisCLI:
         suggestion_home_state = {
             "music_playing": any(e in speaker_entity_ids for e in home_state.get("media_playing", [])),
             "lights_on": room_lights,  # Room-specific lights, not whole-house
-            "media_playing": home_state.get("media_playing", [])
+            "media_playing": home_state.get("media_playing", []),
+            "covers_open": home_state.get("covers_open", []),
+            "covers_closed": home_state.get("covers_closed", []),
+            "climate": home_state.get("climate", {}),
+            "current_room": room,
         }
         suggestions = life_context.get_suggestions(
             context_inference, capabilities, home_state=suggestion_home_state
@@ -713,7 +717,9 @@ class JarvisCLI:
                 "lights_on": home_state.get("lights_on", []),
                 "lights_off": home_state.get("lights_off", []),
                 "music_playing": any(e in speaker_entity_ids for e in home_state.get("media_playing", [])),
-                "media_players": home_state.get("media_playing", [])
+                "media_players": home_state.get("media_playing", []),
+                "covers_open": home_state.get("covers_open", []),
+                "covers_closed": home_state.get("covers_closed", []),
             },
 
             "learned_patterns": {
@@ -1055,15 +1061,13 @@ class JarvisCLI:
 
     def cmd_sent(self, args):
         """
-        Record that a suggestion was SENT to the user.
+        Record that suggestion(s) were SENT to the user.
 
         Usage: jarvis.py sent <room> <suggestion_json> [message_text]
 
-        Call this AFTER using the message tool to send a suggestion.
-        This prevents duplicate suggestions from being sent.
-
-        Example:
+        Accepts a single object or an array for bundled messages:
             jarvis.py sent living_room '{"action":"play_morning_music","type":"ambiance"}' "Morning! Want some music?"
+            jarvis.py sent living_room '[{"action":"welcome_home_lights","type":"comfort"},{"action":"play_evening_music","type":"ambiance"}]' "Welcome back — lights and music?"
         """
         if len(args) < 4:
             print("Usage: jarvis.py sent <room> <suggestion_json> [message_text]", file=sys.stderr)
@@ -1071,38 +1075,45 @@ class JarvisCLI:
 
         room = args[2]
 
-        # Parse suggestion JSON
+        # Parse suggestion JSON — single object or array
         try:
-            suggestion = json.loads(args[3])
+            parsed = json.loads(args[3])
         except json.JSONDecodeError as e:
             print(f"Invalid suggestion JSON: {e}", file=sys.stderr)
             sys.exit(1)
 
+        suggestions = parsed if isinstance(parsed, list) else [parsed]
+
         # Optional message text
         message_text = args[4] if len(args) > 4 else None
 
-        # Record the sent suggestion
-        life_context.record_sent_suggestion(room, suggestion, message_text)
+        # Record each suggestion for cooldown tracking
+        actions = []
+        for suggestion in suggestions:
+            life_context.record_sent_suggestion(room, suggestion, message_text)
+            actions.append(suggestion.get("action"))
 
-        # Write to daily activity log (for main openclaw context sharing)
+        # Write to daily activity log (primary action for display)
         self.activity_log.log_message(
             room=room,
             message=message_text or "",
-            action=suggestion.get("action"),
-            context=suggestion.get("type")
+            action=actions[0] if len(actions) == 1 else "+".join(filter(None, actions)),
+            context=suggestions[0].get("type") if suggestions else None
         )
 
         logger.info(
             "suggestion_sent_recorded",
             room=room,
-            action=suggestion.get("action"),
+            actions=actions,
+            bundled=len(suggestions) > 1,
             message=message_text[:50] if message_text else None
         )
 
         print(json.dumps({
             "recorded": True,
             "room": room,
-            "suggestion": suggestion.get("action"),
+            "suggestions": actions,
+            "bundled": len(suggestions) > 1,
             "awaiting_feedback": True
         }))
 

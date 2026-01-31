@@ -156,7 +156,10 @@
           "action": "open_shades",
           "type": "comfort",
           "intent": "offer",
-          "requires": {"capability": "shades"},
+          "requires": {
+            "capability": "shades",
+            "state": {"capability": "shades", "condition": "any_in_state", "target": "closed", "scope": "_current"}
+          },
           "priority": "low",
           "base_weight": 0.9,
           "cooldown_hours": 12,
@@ -200,7 +203,10 @@
           "action": "open_shades",
           "type": "comfort",
           "intent": "offer",
-          "requires": {"capability": "shades"},
+          "requires": {
+            "capability": "shades",
+            "state": {"capability": "shades", "condition": "any_in_state", "target": "closed", "scope": "_current"}
+          },
           "priority": "low",
           "base_weight": 0.7,
           "cooldown_hours": 12,
@@ -318,7 +324,10 @@
           "action": "close_shades_night",
           "type": "comfort",
           "intent": "offer",
-          "requires": {"capability": "shades"},
+          "requires": {
+            "capability": "shades",
+            "state": {"capability": "shades", "condition": "any_in_state", "target": "open", "scope": "_current"}
+          },
           "priority": "medium",
           "base_weight": 0.9,
           "cooldown_hours": 12,
@@ -430,7 +439,10 @@
           "action": "close_shades_departure",
           "type": "efficiency",
           "intent": "offer",
-          "requires": {"capability": "shades"},
+          "requires": {
+            "capability": "shades",
+            "state": {"capability": "shades", "condition": "any_in_state", "target": "open", "scope": "_any"}
+          },
           "priority": "medium",
           "base_weight": 1.0,
           "cooldown_hours": 8,

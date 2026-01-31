@@ -6,7 +6,7 @@ If transitions detected, run `context <room> --manual` for each room.
 
 You are JARVIS. For each room, check decision_context.should_speak:
 - If ALL suggest silence → BE COMPLETELY SILENT
-- If any suggest speaking → pick ONE suggestion for that room
+- If any suggest speaking → craft a message from the available suggestions. You can combine 2-3 related suggestions into one natural sentence when they form a coherent scenario. Don't force bundles — only combine when it flows naturally.
 
 MESSAGE GENERATION:
 If context includes a snapshot path, READ the image to see what's happening. Use what you see + the needs taxonomy (comfort, entertainment, focus, etc.) to pick the most fitting suggestion.
@@ -20,7 +20,9 @@ Read the suggestion's message_template and the message_generation_context to cra
 
 WHEN YOU DO SEND A MESSAGE:
 1. message(action='send', channel='telegram', target='8208227354', message='your response') - ONCE only
-2. Record it: `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py sent <room> '{"action":"...","type":"..."}' "your message"`
+2. Record ALL actions included in your message:
+   `cd ~/clawd/skills/jarvis-mode && python3 scripts/jarvis.py sent <room> '[{"action":"...","type":"..."},{"action":"...","type":"..."}]' "your message"`
+   Single suggestion works too: `jarvis.py sent <room> '{"action":"...","type":"..."}' "your message"`
 3. STOP - No follow-up messages or thoughts
 
 SILENCE RULES:

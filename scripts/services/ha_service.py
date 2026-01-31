@@ -294,17 +294,19 @@ class HAService:
         "lights_on": [],
         "lights_off": [],
         "media_playing": [],
-        "climate": {}
+        "climate": {},
+        "covers_open": [],
+        "covers_closed": [],
     })
     def get_home_state(self, use_cache: bool = True) -> Dict:
         """
-        Get aggregated home state (lights, media, climate) with caching.
+        Get aggregated home state (lights, media, climate, covers) with caching.
 
         Args:
             use_cache: Whether to use cached state (default: True)
 
         Returns:
-            Dict with lights_on, lights_off, media_playing, climate
+            Dict with lights_on, lights_off, media_playing, climate, covers_open, covers_closed
         """
         states = self.get_all_states(use_cache=use_cache)
 
@@ -312,7 +314,9 @@ class HAService:
             "lights_on": [],
             "lights_off": [],
             "media_playing": [],
-            "climate": {}
+            "climate": {},
+            "covers_open": [],
+            "covers_closed": [],
         }
 
         for entity in states:
@@ -332,11 +336,17 @@ class HAService:
                     "state": state,
                     **entity.get("attributes", {})
                 }
+            elif eid.startswith("cover."):
+                if state in ("open", "opening"):
+                    home_state["covers_open"].append(eid)
+                else:
+                    home_state["covers_closed"].append(eid)
 
         logger.debug("get_home_state",
                     lights_on=len(home_state["lights_on"]),
                     lights_off=len(home_state["lights_off"]),
-                    media_playing=len(home_state["media_playing"]))
+                    media_playing=len(home_state["media_playing"]),
+                    covers_open=len(home_state["covers_open"]))
 
         return home_state
 
