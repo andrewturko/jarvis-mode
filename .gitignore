@@ -1,6 +1,9 @@
 # Runtime data directory (personal activity, state, learned patterns)
 data/
 
+# Logs
+logs/
+
 # User-specific config (generated/configured per home)
 config/config.json
 config/capabilities.json
