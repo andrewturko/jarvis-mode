@@ -329,8 +329,21 @@ class HAService:
                 else:
                     home_state["lights_off"].append(eid)
             elif eid.startswith("media_player."):
-                if state == "playing":
-                    home_state["media_playing"].append(eid)
+                # Exclude Cast/TV entities — they hold stale "playing"
+                # state from old sessions.
+                _EXCLUDE_MEDIA = {
+                    "media_player.master_bedroom_tv",
+                    "media_player.living",
+                    "media_player.global",
+                    "media_player.primary_bedroom",
+                    "media_player.guest_bedroom",
+                }
+                if state == "playing" and eid not in _EXCLUDE_MEDIA:
+                    attrs = entity.get("attributes", {})
+                    # Require actual media metadata — stale entities
+                    # report "playing" but have no title or content id.
+                    if attrs.get("media_title") or attrs.get("media_content_id"):
+                        home_state["media_playing"].append(eid)
             elif eid.startswith("climate."):
                 home_state["climate"][eid] = {
                     "state": state,

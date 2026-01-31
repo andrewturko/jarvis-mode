@@ -22,5 +22,13 @@
     "message": "Rainy Saturday morning \u2014 want me to set some lights for you?",
     "action": "gen_adjust_lights_gaming",
     "context": "comfort"
+  },
+  {
+    "timestamp": "2026-01-31T12:58:24.907056",
+    "type": "message",
+    "room": "kitchen",
+    "message": "Kitchen's a bit dim \u2014 want me to bump the other lights up for you?",
+    "action": "kitchen_bright_lights",
+    "context": "comfort"
   }
 ]
