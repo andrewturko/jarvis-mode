@@ -148,7 +148,7 @@ tail -f /tmp/jarvis-poll-cron.log
 
 ### Check Recent Sessions
 ```bash
-clawdbot sessions list | grep "hook.*jarvis" | head -10
+openclaw sessions list | grep "hook.*jarvis" | head -10
 ```
 
 ### View Status
@@ -189,10 +189,10 @@ launchctl load -w ~/Library/LaunchAgents/com.jarvis.poll.plist
 curl http://localhost:18789/api/health
 
 # Check hooks are registered
-cat ~/.clawdbot/clawdbot.json | jq '.hooks.mappings[] | select(.id | contains("jarvis"))'
+cat ~/.openclaw/openclaw.json | jq '.hooks.mappings[] | select(.id | contains("jarvis"))'
 
 # Restart gateway
-clawdbot gateway restart
+openclaw gateway restart
 ```
 
 ### No Detections

@@ -17,18 +17,18 @@ STATE_FILE = SKILL_DIR / "state.json"
 PATTERNS_FILE = SKILL_DIR / "patterns.json"
 SNAPSHOT_DIR = SKILL_DIR / "snapshots"
 HOOKS_FILE = SKILL_DIR / "hooks.json"
-GATEWAY_URL = os.environ.get("CLAWDBOT_GATEWAY", "http://127.0.0.1:18789")
+GATEWAY_URL = os.environ.get("OPENCLAW_GATEWAY", "http://127.0.0.1:18789")
 
-# Environment - try env vars first, then clawdbot config
+# Environment - try env vars first, then openclaw config
 def _get_ha_config():
-    """Get HA config from environment or clawdbot config."""
+    """Get HA config from environment or openclaw config."""
     url = os.environ.get("HA_URL")
     token = os.environ.get("HA_TOKEN")
     
     if not url or not token:
-        # Try reading from clawdbot config
+        # Try reading from openclaw config
         try:
-            config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+            config_path = Path.home() / ".openclaw" / "openclaw.json"
             with open(config_path) as f:
                 config = json.load(f)
                 env_vars = config.get("env", {}).get("vars", {})
@@ -578,9 +578,9 @@ def handle_occupied_room(room_name):
 
 def setup_jarvis():
     """
-    Self-register Jarvis hooks and cron job with Clawdbot.
-    - Hooks: patches ~/.clawdbot/clawdbot.json directly
-    - Cron: uses clawdbot cron CLI
+    Self-register Jarvis hooks and cron job with OpenClaw.
+    - Hooks: patches ~/.openclaw/openclaw.json directly
+    - Cron: uses openclaw cron CLI
     """
     results = {
         "success": True,
@@ -603,20 +603,20 @@ def setup_jarvis():
     for mapping in hooks_def.get("hooks", {}).get("mappings", []):
         mapping["channel"] = notify_channel
     
-    # Patch hooks directly into clawdbot.json
-    clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+    # Patch hooks directly into openclaw.json
+    openclaw_config_path = Path.home() / ".openclaw" / "openclaw.json"
     try:
-        with open(clawdbot_config_path) as f:
-            clawdbot_config = json.load(f)
+        with open(openclaw_config_path) as f:
+            openclaw_config = json.load(f)
         
         # Ensure hooks section exists
-        if "hooks" not in clawdbot_config:
-            clawdbot_config["hooks"] = {"enabled": True, "mappings": []}
+        if "hooks" not in openclaw_config:
+            openclaw_config["hooks"] = {"enabled": True, "mappings": []}
         
-        clawdbot_config["hooks"]["enabled"] = True
+        openclaw_config["hooks"]["enabled"] = True
         
         # Get existing mappings
-        existing_mappings = clawdbot_config["hooks"].get("mappings", [])
+        existing_mappings = openclaw_config["hooks"].get("mappings", [])
         existing_ids = {m.get("id") for m in existing_mappings}
         
         # Add/update our hooks
@@ -631,29 +631,29 @@ def setup_jarvis():
                 # Add new
                 existing_mappings.append(new_mapping)
         
-        clawdbot_config["hooks"]["mappings"] = existing_mappings
+        openclaw_config["hooks"]["mappings"] = existing_mappings
         
         # Write back
-        with open(clawdbot_config_path, 'w') as f:
-            json.dump(clawdbot_config, f, indent=2)
+        with open(openclaw_config_path, 'w') as f:
+            json.dump(openclaw_config, f, indent=2)
         
         results["hooks"]["registered"] = True
         results["hooks"]["note"] = "Restart gateway to apply hooks"
         
     except FileNotFoundError:
-        results["hooks"]["error"] = f"Clawdbot config not found at {clawdbot_config_path}"
+        results["hooks"]["error"] = f"OpenClaw config not found at {openclaw_config_path}"
         results["success"] = False
     except Exception as e:
         results["hooks"]["error"] = str(e)
         results["success"] = False
     
-    # Register cron job via clawdbot cron CLI
+    # Register cron job via openclaw cron CLI
     cron_def = hooks_def.get("cron")
     if cron_def:
         try:
             # Check if cron already exists
             result = subprocess.run(
-                ["clawdbot", "cron", "list", "--json"],
+                ["openclaw", "cron", "list", "--json"],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -677,14 +677,14 @@ def setup_jarvis():
             if existing_job:
                 # Remove and re-add (simpler than edit)
                 subprocess.run(
-                    ["clawdbot", "cron", "rm", existing_job["id"]],
+                    ["openclaw", "cron", "rm", existing_job["id"]],
                     capture_output=True,
                     timeout=10
                 )
 
             # Build command based on payload type
             cmd = [
-                "clawdbot", "cron", "add",
+                "openclaw", "cron", "add",
                 "--name", cron_def["name"],
                 "--cron", cron_expr,
             ]
@@ -720,7 +720,7 @@ def setup_jarvis():
                 results["success"] = False
                 
         except FileNotFoundError:
-            results["cron"]["error"] = "clawdbot CLI not found - is Clawdbot installed?"
+            results["cron"]["error"] = "openclaw CLI not found - is OpenClaw installed?"
             results["success"] = False
         except Exception as e:
             results["cron"]["error"] = str(e)
@@ -1023,7 +1023,7 @@ def main():
         print(json.dumps({"occupancy": occupancy}))
     
     elif cmd == "setup":
-        # Self-register hooks and cron with Clawdbot
+        # Self-register hooks and cron with OpenClaw
         result = setup_jarvis()
         print(json.dumps(result, indent=2))
         if not result.get("success"):

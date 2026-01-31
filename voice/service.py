@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Jarvis Voice Service
-Main orchestrator - connects audio streams, wake word detection, STT, and Clawdbot.
+Main orchestrator - connects audio streams, wake word detection, STT, and OpenClaw.
 """
 
 import argparse
@@ -28,7 +28,7 @@ class JarvisVoiceService:
     1. Captures audio from UniFi cameras via RTSP
     2. Listens for wake word ("Hey Jarvis")
     3. Captures and transcribes speech
-    4. Sends to Clawdbot for processing
+    4. Sends to OpenClaw for processing
     5. Plays TTS response on Sonos
     """
     
@@ -77,7 +77,7 @@ class JarvisVoiceService:
         )
         
     def _init_response_handler(self):
-        """Initialize Clawdbot client and TTS."""
+        """Initialize OpenClaw client and TTS."""
         self.response_handler = ResponseHandler()
         
     def _init_audio_streams(self):
@@ -122,7 +122,7 @@ class JarvisVoiceService:
             print(f"[{room}] Only wake word detected, no command")
             return
             
-        # Send to Clawdbot and respond
+        # Send to OpenClaw and respond
         self.response_handler.handle(text, room)
         
     def start(self):

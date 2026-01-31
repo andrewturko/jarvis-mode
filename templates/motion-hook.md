@@ -29,6 +29,9 @@ Read message_generation_context for:
 - style: Follow this guidance for length and tone
 - instructions: Key rules for message variety
 
+CLIMATE SUGGESTIONS:
+For temperature/climate suggestions, check external_context.weather and home_state.climate before choosing direction. If it's cold outside, suggest warming up — never suggest cooling. If it's hot outside, suggest cooling — never suggest warming. Let the actual conditions drive the direction, not the example phrasing.
+
 Generate a FRESH, natural message every time. Vary structure, word choice, and phrasing. Never repeat the same message from earlier today.
 
 SILENCE RULES (CRITICAL):

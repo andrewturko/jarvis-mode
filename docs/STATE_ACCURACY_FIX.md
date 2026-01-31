@@ -2,21 +2,21 @@
 
 **Issue**: UI monitoring status was inaccurate - showing stale "Last check: Never" and outdated occupancy status
 
-**Root Cause**: The `context` command (used by Clawdbot) was checking motion sensors and analyzing rooms but **never updating state.json** with current occupancy or check timestamps.
+**Root Cause**: The `context` command (used by OpenClaw) was checking motion sensors and analyzing rooms but **never updating state.json** with current occupancy or check timestamps.
 
 ## The Problem
 
 ### What Was Happening
 
 1. **`poll` command** (scheduled checks) ✅ correctly updated state via [occupancy_service.py:251](scripts/services/occupancy_service.py#L251)
-2. **`context` command** (Clawdbot/manual checks) ❌ got motion state but never wrote it to state.json
+2. **`context` command** (OpenClaw/manual checks) ❌ got motion state but never wrote it to state.json
 3. **UI read from state.json** → showed stale data
 4. **Result**: UI displayed "Last check: Never" even after recent checks
 
 ### Flow Before Fix
 
 ```
-User/Clawdbot → context kitchen --manual
+User/OpenClaw → context kitchen --manual
     ↓
 Get motion sensor state (person_detected = false)
     ↓
@@ -86,7 +86,7 @@ Added backward-compatible module-level functions:
 ## Flow After Fix
 
 ```
-User/Clawdbot → context kitchen --manual
+User/OpenClaw → context kitchen --manual
     ↓
 Get motion sensor state (person_detected = false)
     ↓

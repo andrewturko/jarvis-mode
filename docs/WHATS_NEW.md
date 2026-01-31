@@ -170,7 +170,7 @@ cat logs/jarvis.log | jq 'select(.operation == "decision_made")'
 }
 ```
 
-## Clawdbot Integration
+## OpenClaw Integration
 
 ### Before
 ```json
@@ -318,7 +318,7 @@ Your existing system continues to work! All changes are backward compatible:
 1. **State migrated**: v1 → v2 (backup created automatically)
 2. **Config unchanged**: camelCase still supported
 3. **Commands work**: All existing commands still function
-4. **Hooks work**: Clawdbot integration enhanced, not broken
+4. **Hooks work**: OpenClaw integration enhanced, not broken
 
 ## What to Test Now
 

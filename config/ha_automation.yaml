@@ -1,7 +1,7 @@
 # Jarvis Mode - Motion Trigger Automation
 # Add this to your Home Assistant automations.yaml or create via UI
 #
-# This calls the Clawdbot gateway webhook directly when motion is detected.
+# This calls the OpenClaw gateway webhook directly when motion is detected.
 # The Jarvis server (8088) handles cooldown checks before forwarding.
 
 # =============================================================================
@@ -39,9 +39,9 @@ action:
         {{ trigger.entity_id | replace('binary_sensor.', '') | replace('_person_detected', '') }}
 
 # =============================================================================
-# ALTERNATIVE: Call Clawdbot gateway directly (bypasses Jarvis cooldowns)
+# ALTERNATIVE: Call OpenClaw gateway directly (bypasses Jarvis cooldowns)
 # =============================================================================
-# If you want HA to call Clawdbot directly (skipping the Jarvis server):
+# If you want HA to call OpenClaw directly (skipping the Jarvis server):
 #
 # rest_command:
 #   jarvis_direct:

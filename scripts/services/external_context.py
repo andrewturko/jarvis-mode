@@ -3,7 +3,7 @@
 External Context Service - Lightweight context enrichment.
 
 Provides basic time/weather awareness. Claude can naturally query other
-Clawdbot skills during reasoning if needed — no complex pre-fetching required.
+OpenClaw skills during reasoning if needed — no complex pre-fetching required.
 """
 
 import json
@@ -30,8 +30,8 @@ class ExternalContext:
             self._load_ha_credentials()
 
     def _load_ha_credentials(self):
-        """Load HA credentials from clawdbot.json."""
-        config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+        """Load HA credentials from openclaw.json."""
+        config_path = Path.home() / ".openclaw" / "openclaw.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:

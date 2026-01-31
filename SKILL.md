@@ -1,7 +1,7 @@
 ---
 name: jarvis-mode
 description: Proactive home intelligence - observe cameras, infer activities, and suggest helpful actions via Telegram. Enable/disable via web UI.
-homepage: https://github.com/clawdbot
+homepage: https://github.com/openclaw
 metadata: {"clawdis":{"emoji":"🤖","requires":{"bins":["curl","python3"],"env":["HA_URL","HA_TOKEN"]}}}
 ---
 
@@ -270,7 +270,7 @@ Human-readable, git-friendly, no database required.
 - `life-model.json` — Static life context definitions
 - `suggestion-catalog.json` — Suggestion templates
 - `capabilities.json` — Home device capabilities
-- `hooks.json` — Clawdbot webhook definitions
+- `hooks.json` — OpenClaw webhook definitions
 
 **Data** (`data/` — gitignored):
 - `state.json` — Current state (last checks, observations, patterns)

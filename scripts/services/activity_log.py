@@ -2,7 +2,7 @@
 """
 Daily activity log for Jarvis.
 
-Records what Jarvis said/did so the main clawdbot conversation
+Records what Jarvis said/did so the main openclaw conversation
 can reference it when the user asks "what did Jarvis say?"
 
 Writes one JSON file per day: logs/jarvis-activity-YYYY-MM-DD.json

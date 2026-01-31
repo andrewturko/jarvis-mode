@@ -1,5 +1,5 @@
 """
-Response Handler - Send to Clawdbot and play TTS response via Sonos
+Response Handler - Send to OpenClaw and play TTS response via Sonos
 """
 
 import json
@@ -20,9 +20,9 @@ def load_config() -> dict:
         return json.load(f)
 
 
-class ClawdbotClient:
+class OpenClawClient:
     """
-    Sends voice transcriptions to Clawdbot and receives responses.
+    Sends voice transcriptions to OpenClaw and receives responses.
     """
     
     def __init__(
@@ -39,14 +39,14 @@ class ClawdbotClient:
         
     def send(self, text: str, room: str) -> Optional[str]:
         """
-        Send transcribed text to Clawdbot.
+        Send transcribed text to OpenClaw.
         
         Args:
             text: Transcribed speech
             room: Room where speech was detected
             
         Returns:
-            Response text from Clawdbot, or None on error
+            Response text from OpenClaw, or None on error
         """
         try:
             url = f"{self.gateway_url}{self.hook_path}"
@@ -74,10 +74,10 @@ class ClawdbotClient:
                 return result.get("response", result.get("message", ""))
                 
         except urllib.error.URLError as e:
-            print(f"Clawdbot connection error: {e}")
+            print(f"OpenClaw connection error: {e}")
             return None
         except Exception as e:
-            print(f"Clawdbot error: {e}")
+            print(f"OpenClaw error: {e}")
             return None
 
 
@@ -229,19 +229,19 @@ class SonosTTS:
 
 class ResponseHandler:
     """
-    Coordinates sending to Clawdbot and playing TTS response.
+    Coordinates sending to OpenClaw and playing TTS response.
     """
     
     def __init__(self):
         config = load_config()
-        clawdbot_config = config.get("clawdbot", {})
+        openclaw_config = config.get("openclaw", {})
         tts_config = config.get("tts", {})
 
-        self.clawdbot = ClawdbotClient(
-            gateway_url=clawdbot_config.get("gateway_url", "http://127.0.0.1:18789"),
-            hook_path=clawdbot_config.get("hook_path", "/hooks/jarvis/voice"),
-            hook_token=clawdbot_config.get("hook_token", ""),
-            timeout_seconds=clawdbot_config.get("timeout_seconds", 30)
+        self.openclaw = OpenClawClient(
+            gateway_url=openclaw_config.get("gateway_url", "http://127.0.0.1:18789"),
+            hook_path=openclaw_config.get("hook_path", "/hooks/jarvis/voice"),
+            hook_token=openclaw_config.get("hook_token", ""),
+            timeout_seconds=openclaw_config.get("timeout_seconds", 30)
         )
 
         self.tts_enabled = tts_config.get("enabled", True)
@@ -256,7 +256,7 @@ class ResponseHandler:
         
     def handle(self, text: str, room: str) -> Optional[str]:
         """
-        Send transcription to Clawdbot and speak response.
+        Send transcription to OpenClaw and speak response.
 
         Args:
             text: Transcribed speech
@@ -277,19 +277,19 @@ class ResponseHandler:
         # Update last request tracker
         self.last_request = (text, now)
 
-        print(f"[{room}] Sending to Clawdbot: \"{text}\"")
+        print(f"[{room}] Sending to OpenClaw: \"{text}\"")
 
-        # Send to Clawdbot
-        response = self.clawdbot.send(text, room)
+        # Send to OpenClaw
+        response = self.openclaw.send(text, room)
 
         if response:
-            print(f"[{room}] Clawdbot response: \"{response}\"")
+            print(f"[{room}] OpenClaw response: \"{response}\"")
 
             # Speak response
             if self.tts and self.tts_enabled:
                 self.tts.speak(response, room)
         else:
-            print(f"[{room}] No response from Clawdbot")
+            print(f"[{room}] No response from OpenClaw")
 
         return response
 

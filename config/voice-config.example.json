@@ -44,7 +44,7 @@
     "engine": "sonos",
     "default_volume": 30
   },
-  "clawdbot": {
+  "openclaw": {
     "enabled": true,
     "gateway_url": "http://127.0.0.1:18789",
     "hook_path": "/hooks/jarvis/voice",

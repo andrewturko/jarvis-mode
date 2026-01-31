@@ -2,7 +2,7 @@
 
 *"Good evening, sir. I've noticed you've settled into the living room. Shall I dim the lights and queue up some evening jazz?"*
 
-Jarvis Mode transforms [Clawdbot](https://github.com/clawdbot/clawdbot) into a proactive home intelligence system — observing, anticipating, and suggesting like Tony Stark's AI companion. It doesn't wait to be asked; it notices what's happening and offers help at exactly the right moment.
+Jarvis Mode transforms [OpenClaw](https://github.com/openclaw/openclaw) into a proactive home intelligence system — observing, anticipating, and suggesting like Tony Stark's AI companion. It doesn't wait to be asked; it notices what's happening and offers help at exactly the right moment.
 
 ## The Vision
 
@@ -57,7 +57,7 @@ Full-featured UI for configuration and monitoring:
 - **UniFi Protect**: Camera snapshots + person detection
 - **Control4**: AV routing and whole-home audio
 - **Sonos**: Music control and favorites
-- **Any Clawdbot channel**: Telegram, Discord, iMessage, etc.
+- **Any OpenClaw channel**: Telegram, Discord, iMessage, etc.
 
 ### Dynamic Suggestion Catalog
 
@@ -109,7 +109,7 @@ Jarvis learns your patterns over time — no manual programming required.
 Observation → Pattern Match → Confidence Score → Natural Suggestion
 ```
 
-Works across everything Clawdbot can control:
+Works across everything OpenClaw can control:
 - **Lights**: "Getting dark — want me to bring up the counter lights?"
 - **Music**: "You usually put on jazz around now. Chill House?"
 - **Climate**: "Heading to bed? I can drop the thermostat to 68."
@@ -198,7 +198,7 @@ Or I can just keep an eye on things."
 
 ### Prerequisites
 
-- [Clawdbot](https://github.com/clawdbot/clawdbot) installed and running
+- [OpenClaw](https://github.com/openclaw/openclaw) installed and running
 - Home Assistant with:
   - Camera entities (UniFi Protect recommended)
   - Person detection binary sensors
@@ -224,18 +224,18 @@ Or I can just keep an eye on things."
    # Edit config/config.json with your camera entities and sensors
    ```
 
-3. **Register with Clawdbot** (auto-configures hooks + cron)
+3. **Register with OpenClaw** (auto-configures hooks + cron)
    ```bash
    python3 scripts/jarvis.py setup
    ```
    This automatically:
-   - Adds webhook handlers to Clawdbot config
+   - Adds webhook handlers to OpenClaw config
    - Creates the polling cron job
    - Uses `notifyChannel` from your config
 
-4. **Restart Clawdbot gateway** to apply hooks
+4. **Restart OpenClaw gateway** to apply hooks
    ```bash
-   clawdbot gateway restart
+   openclaw gateway restart
    ```
 
 5. **Discover your devices** (also generates dynamic suggestion catalog)
@@ -363,7 +363,7 @@ jarvis.py cleanup             # Delete old snapshots
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     Clawdbot Agent                       │
+│                     OpenClaw Agent                       │
 │  (Receives observations, decides actions/suggestions)    │
 └─────────────────────┬───────────────────────────────────┘
                       │
@@ -458,7 +458,7 @@ python3 voice/service.py --test-wake
 ### Architecture
 
 ```
-Camera Mic → RTSP → ffmpeg → Wake Word → STT → Clawdbot → TTS → Sonos
+Camera Mic → RTSP → ffmpeg → Wake Word → STT → OpenClaw → TTS → Sonos
 ```
 
 ### Requirements
@@ -527,7 +527,7 @@ jarvis-mode/
 │   ├── life-model.json              # Context definitions, needs, capability types
 │   ├── suggestion-catalog.json      # Hand-authored suggestion templates
 │   ├── capabilities.json            # Home device capabilities (auto-updated)
-│   ├── hooks.json                   # Clawdbot webhook definitions
+│   ├── hooks.json                   # OpenClaw webhook definitions
 │   └── ha_automation.yaml           # Home Assistant automation for motion
 │
 ├── data/                          # Runtime data (gitignored)

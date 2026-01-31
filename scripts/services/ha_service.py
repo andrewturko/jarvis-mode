@@ -125,12 +125,12 @@ class HAService:
 
     def _get_ha_config(self, url: Optional[str] = None, token: Optional[str] = None) -> Tuple[str, str]:
         """
-        Get HA configuration from environment or clawdbot config.
+        Get HA configuration from environment or openclaw config.
 
         Priority:
         1. Explicitly provided parameters
         2. Environment variables (HA_URL, HA_TOKEN)
-        3. Clawdbot config file (~/.clawdbot/clawdbot.json)
+        3. OpenClaw config file (~/.openclaw/openclaw.json)
         4. Defaults
 
         Returns:
@@ -140,17 +140,17 @@ class HAService:
         url = url or os.environ.get("HA_URL")
         token = token or os.environ.get("HA_TOKEN")
 
-        # Try clawdbot config as fallback
+        # Try openclaw config as fallback
         if not url or not token:
             try:
-                config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+                config_path = Path.home() / ".openclaw" / "openclaw.json"
                 with open(config_path) as f:
                     config = json.load(f)
                     env_vars = config.get("env", {}).get("vars", {})
                     url = url or env_vars.get("HA_URL")
                     token = token or env_vars.get("HA_TOKEN")
             except Exception as e:
-                logger.debug("clawdbot_config_read_failed", error=str(e))
+                logger.debug("openclaw_config_read_failed", error=str(e))
 
         # Defaults
         url = url or "http://homeassistant.local:8123"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jarvis Mode - Proactive home intelligence system for Clawdbot.
+Jarvis Mode - Proactive home intelligence system for OpenClaw.
 
 CLI interface for managing Jarvis Mode and interacting with home automation.
 """
@@ -95,7 +95,7 @@ class JarvisCLI:
                 context_service=self.context_service
             )
 
-            # Activity log for sharing Jarvis context with main clawdbot conversation
+            # Activity log for sharing Jarvis context with main openclaw conversation
             self.activity_log = ActivityLog()
 
             logger.info("jarvis_cli_initialized")
@@ -215,7 +215,8 @@ class JarvisCLI:
             "instructions": (
                 "Generate a UNIQUE message each time. Use the examples in message_template "
                 "as inspiration for tone and intent, but NEVER copy them verbatim. "
-                "Incorporate the time of day and context naturally. "
+                "Examples encode ACTIVITY context only. Use time_natural as the sole "
+                "source for time-of-day — never double up with time references from examples. "
                 "Keep it short — one sentence, maybe two if needed."
             )
         }
@@ -351,7 +352,7 @@ class JarvisCLI:
         print("  patterns [--analyze]        View learned behavior patterns")
         print("  events [--hours N]          View collected HA events")
         print("  cleanup                     Delete old snapshots")
-        print("  setup                       Self-register with Clawdbot")
+        print("  setup                       Self-register with OpenClaw")
 
     def cmd_status(self):
         """Get full Jarvis status."""
@@ -1082,7 +1083,7 @@ class JarvisCLI:
         # Record the sent suggestion
         life_context.record_sent_suggestion(room, suggestion, message_text)
 
-        # Write to daily activity log (for main clawdbot context sharing)
+        # Write to daily activity log (for main openclaw context sharing)
         self.activity_log.log_message(
             room=room,
             message=message_text or "",
@@ -1265,7 +1266,7 @@ class JarvisCLI:
         Usage: jarvis.py activity
 
         Returns JSON array of messages Jarvis sent today, for context sharing
-        with the main clawdbot conversation.
+        with the main openclaw conversation.
         """
         entries = self.activity_log.get_today()
         # Filter to messages only (skip silence entries for brevity)
@@ -1283,7 +1284,7 @@ class JarvisCLI:
         print(json.dumps({"cleaned": True, "activity_logs_removed": removed_logs}))
 
     def cmd_setup(self):
-        """Self-register with Clawdbot."""
+        """Self-register with OpenClaw."""
         # Load hooks definition
         try:
             with open(HOOKS_FILE) as f:
@@ -1296,35 +1297,35 @@ class JarvisCLI:
         # directly to send to Telegram (target: 8208227354). This prevents accidental
         # delivery of agent text output that isn't meant for the user.
 
-        # Patch hooks into clawdbot.json
-        clawdbot_config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+        # Patch hooks into openclaw.json
+        openclaw_config_path = Path.home() / ".openclaw" / "openclaw.json"
 
         try:
-            with open(clawdbot_config_path) as f:
-                clawdbot_config = json.load(f)
+            with open(openclaw_config_path) as f:
+                openclaw_config = json.load(f)
 
             # Ensure hooks section exists
-            if "hooks" not in clawdbot_config:
-                clawdbot_config["hooks"] = {"enabled": True, "mappings": []}
+            if "hooks" not in openclaw_config:
+                openclaw_config["hooks"] = {"enabled": True, "mappings": []}
 
-            clawdbot_config["hooks"]["enabled"] = True
+            openclaw_config["hooks"]["enabled"] = True
 
             # Merge mappings (replace existing jarvis hooks)
-            existing_mappings = [m for m in clawdbot_config["hooks"].get("mappings", [])
+            existing_mappings = [m for m in openclaw_config["hooks"].get("mappings", [])
                                if not m.get("id", "").startswith("jarvis-")]
 
-            clawdbot_config["hooks"]["mappings"] = existing_mappings + hooks_def["hooks"]["mappings"]
+            openclaw_config["hooks"]["mappings"] = existing_mappings + hooks_def["hooks"]["mappings"]
 
             # Write back
-            with open(clawdbot_config_path, "w") as f:
-                json.dump(clawdbot_config, f, indent=2)
+            with open(openclaw_config_path, "w") as f:
+                json.dump(openclaw_config, f, indent=2)
 
             logger.info("setup_hooks_registered")
 
             print(json.dumps({
                 "success": True,
                 "hooks": {"registered": True},
-                "message": "Jarvis hooks registered. Restart Clawdbot gateway to apply."
+                "message": "Jarvis hooks registered. Restart OpenClaw gateway to apply."
             }, indent=2))
 
         except Exception as e:

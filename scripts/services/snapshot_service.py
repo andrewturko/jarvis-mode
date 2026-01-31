@@ -250,11 +250,11 @@ class SnapshotService:
                 - notable (str|None): Anything unusual
                 - confidence (str): "high" if clean parse, "low" if fallback
         """
-        # Resolve clawdbot gateway URL and auth for API calls
-        gateway_url = os.environ.get("CLAWDBOT_GATEWAY_URL")
-        gateway_password = os.environ.get("CLAWDBOT_GATEWAY_PASSWORD")
+        # Resolve openclaw gateway URL and auth for API calls
+        gateway_url = os.environ.get("OPENCLAW_GATEWAY_URL")
+        gateway_password = os.environ.get("OPENCLAW_GATEWAY_PASSWORD")
         if not gateway_url:
-            config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+            config_path = Path.home() / ".openclaw" / "openclaw.json"
             if config_path.exists():
                 try:
                     with open(config_path) as f:
@@ -265,10 +265,10 @@ class SnapshotService:
                     if not gateway_password:
                         gateway_password = gw.get("auth", {}).get("password")
                 except (json.JSONDecodeError, OSError) as e:
-                    logger.warning("vision_clawdbot_config_read_failed", error=str(e))
+                    logger.warning("vision_openclaw_config_read_failed", error=str(e))
 
         if not gateway_url:
-            logger.warning("vision_no_gateway", message="No clawdbot gateway URL found")
+            logger.warning("vision_no_gateway", message="No openclaw gateway URL found")
             return {
                 "people_count": None,
                 "person_detected": None,

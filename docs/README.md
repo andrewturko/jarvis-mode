@@ -66,7 +66,7 @@ Complete documentation for the Jarvis Mode home intelligence system.
 
 ### Integration
 
-- **Clawdbot Hooks**: Full integration with enhanced prompts
+- **OpenClaw Hooks**: Full integration with enhanced prompts
 - **Voice Commands**: "Hey Jarvis" wake word detection
 - **Web UI**: Real-time monitoring and control
 - **Home Assistant**: Seamless integration

@@ -100,19 +100,19 @@ python3 scripts/jarvis.py feedback '{"type":"music","action":"play_background_mu
 cat patterns.json | jq '.learned_patterns.patterns."cooking+music".acceptance_rate'
 ```
 
-### 3. Test Integration with Clawdbot (Phase 3)
+### 3. Test Integration with OpenClaw (Phase 3)
 
 #### Verify Hooks Registration
 
 ```bash
-# Self-register with Clawdbot (if not done already)
+# Self-register with OpenClaw (if not done already)
 python3 scripts/jarvis.py setup
 
 # Check hooks.json is registered
 cat ~/.claude/hooks.json | grep jarvis
 ```
 
-#### Test Motion Event via Clawdbot
+#### Test Motion Event via OpenClaw
 
 **Method 1: Simulate via webhook**
 ```bash
@@ -121,7 +121,7 @@ curl -X POST http://localhost:8080/jarvis/motion?room=kitchen
 ```
 
 **Expected Flow**:
-1. Clawdbot receives motion event
+1. OpenClaw receives motion event
 2. Runs `jarvis.py context kitchen --manual`
 3. Gets enriched context payload
 4. Agent analyzes with full intelligence
@@ -261,21 +261,21 @@ Over multiple days:
 2. Pattern learning updates acceptance_rate to 0.8
 3. Next time: Agent proactively suggests music with high priority
 
-### 6. Verify Clawdbot Integration
+### 6. Verify OpenClaw Integration
 
 #### Test Complete Flow
 
 1. **Trigger motion event** (walk into room or simulate)
-2. **Clawdbot receives webhook** at `/jarvis/motion?room=kitchen`
+2. **OpenClaw receives webhook** at `/jarvis/motion?room=kitchen`
 3. **Hook executes** from hooks.json
 4. **Jarvis returns context** with full intelligence
 5. **Agent analyzes** with enriched payload
 6. **Agent responds** naturally or NO_REPLY
 
-**Check Clawdbot Logs**:
+**Check OpenClaw Logs**:
 ```bash
-# If running clawdbot locally
-tail -f ~/.claude/logs/clawdbot.log | grep jarvis
+# If running openclaw locally
+tail -f ~/.claude/logs/openclaw.log | grep jarvis
 ```
 
 **Verify Prompt Quality**:
@@ -357,7 +357,7 @@ cat state.json | jq '.decision_log | length'
 
 **Fix**: Need 5-10 observations before patterns emerge. Record more observations or run pattern analysis manually.
 
-### Issue: Clawdbot not triggering
+### Issue: OpenClaw not triggering
 
 **Diagnosis**:
 ```bash
@@ -448,7 +448,7 @@ python3 -m pytest tests/ -m integration
 
 - [PHASE_1_COMPLETE.md](PHASE_1_COMPLETE.md): Foundation (state, logging, config)
 - [tests/README.md](tests/README.md): Testing infrastructure
-- [hooks.json](hooks.json): Clawdbot integration
+- [hooks.json](hooks.json): OpenClaw integration
 - [Plan Document](~/.claude/plans/ancient-growing-sunrise.md): Full implementation plan
 
 ---

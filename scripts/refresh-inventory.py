@@ -14,21 +14,21 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from core.paths import SKILL_DIR, INVENTORY_FILE, CAPABILITIES_FILE
 
-# Get HA config from environment or clawdbot config
+# Get HA config from environment or openclaw config
 def _get_ha_config():
     url = os.environ.get("HA_URL")
     token = os.environ.get("HA_TOKEN")
     
     if not url or not token:
         try:
-            config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+            config_path = Path.home() / ".openclaw" / "openclaw.json"
             with open(config_path) as f:
                 config = json.load(f)
                 env_vars = config.get("env", {}).get("vars", {})
                 url = url or env_vars.get("HA_URL", "http://homeassistant.local:8123")
                 token = token or env_vars.get("HA_TOKEN", "")
         except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Could not read clawdbot config: {e}", file=sys.stderr)
+            print(f"Warning: Could not read openclaw config: {e}", file=sys.stderr)
     
     return url or "http://homeassistant.local:8123", token or ""
 

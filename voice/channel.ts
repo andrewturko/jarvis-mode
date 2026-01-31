@@ -6,7 +6,7 @@
  * Maintains per-room session context for follow-up commands.
  */
 
-import type { PluginApi } from "clawdbot";
+import type { PluginApi } from "openclaw";
 
 export const id = "unifi-voice";
 export const name = "UniFi Voice Channel";

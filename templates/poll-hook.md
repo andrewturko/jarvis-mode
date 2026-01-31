@@ -14,6 +14,7 @@ Read the suggestion's message_template and the message_generation_context to cra
 - examples are INSPIRATION ONLY — never copy them verbatim
 - Match the tone, responsiveness level, and style guidance
 - Incorporate time of day naturally
+- For climate suggestions: check external_context.weather and home_state.climate before choosing direction. Cold outside → suggest warming; hot outside → suggest cooling. Let actual conditions drive the direction, not example phrasing.
 - If responsiveness is "low", keep it ultra-brief
 
 WHEN YOU DO SEND A MESSAGE:

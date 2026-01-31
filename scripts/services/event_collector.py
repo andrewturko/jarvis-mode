@@ -59,12 +59,12 @@ class EventCollector:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # HA connection details from environment or clawdbot config
+        # HA connection details from environment or openclaw config
         self.ha_url = os.environ.get("HA_URL", "").replace("http://", "ws://").replace("https://", "wss://")
         self.ha_token = os.environ.get("HA_TOKEN", "")
 
         if not self.ha_url or not self.ha_token:
-            self._load_from_clawdbot_config()
+            self._load_from_openclaw_config()
 
         # Convert to websocket URL
         if self.ha_url and not self.ha_url.startswith("ws"):
@@ -112,9 +112,9 @@ class EventCollector:
 
         return priority
 
-    def _load_from_clawdbot_config(self):
-        """Load HA credentials from clawdbot.json."""
-        config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+    def _load_from_openclaw_config(self):
+        """Load HA credentials from openclaw.json."""
+        config_path = Path.home() / ".openclaw" / "openclaw.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:
@@ -123,7 +123,7 @@ class EventCollector:
                 self.ha_url = env_vars.get("HA_URL", "")
                 self.ha_token = env_vars.get("HA_TOKEN", "")
             except Exception as e:
-                print(f"Failed to load clawdbot config: {e}")
+                print(f"Failed to load openclaw config: {e}")
 
     def _init_database(self):
         """Initialize SQLite database with schema."""

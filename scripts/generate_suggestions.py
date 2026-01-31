@@ -24,17 +24,19 @@ from intelligence._helpers import load_json, save_json
 # ---------------------------------------------------------------------------
 # Context-aware phrase fragments for natural example generation
 # ---------------------------------------------------------------------------
+# Phrases describe ACTIVITY only — never time-of-day.
+# Time is a separate primitive provided at runtime via time_natural.
 CONTEXT_PHRASES = {
-    "waking_up":       {"while": "to start the day",     "setting": "for the morning"},
-    "morning_routine": {"while": "while you get ready",  "setting": "for the morning"},
+    "waking_up":       {"while": "as you get up",        "setting": "to start your day"},
+    "morning_routine": {"while": "while you get ready",  "setting": "while you get ready"},
     "cooking":         {"while": "while you cook",       "setting": "for cooking"},
-    "eating":          {"while": "during your meal",     "setting": "for dinner"},
+    "eating":          {"while": "during your meal",     "setting": "for your meal"},
     "post_meal":       {"while": "after your meal",      "setting": "post-meal"},
     "working":         {"while": "while you work",       "setting": "for focus"},
     "break":           {"while": "during your break",    "setting": "while you recharge"},
-    "winding_down":    {"while": "as you wind down",     "setting": "for the evening"},
-    "going_to_bed":    {"while": "before bed",           "setting": "for the night"},
-    "sleeping":        {"while": "for the night",        "setting": "overnight"},
+    "winding_down":    {"while": "as you wind down",     "setting": "to wind down"},
+    "going_to_bed":    {"while": "before bed",           "setting": "for bed"},
+    "sleeping":        {"while": "while you sleep",      "setting": "while you sleep"},
     "arriving_home":   {"while": "now that you're home", "setting": "for your return"},
     "leaving_home":    {"while": "before you head out",  "setting": "while you're away"},
     "going_out":       {"while": "before you head out",  "setting": "while you're away"},
@@ -143,8 +145,8 @@ def _climate_examples(context_name, need, cap_data):
             f"Temperature good, or should I tweak it?",
         ],
         "focus": [
-            f"Want it a bit cooler {p['setting']}?",
-            f"Should I optimize the temperature for focus?",
+            f"Want me to optimize the temperature {p['setting']}?",
+            f"Should I tweak the thermostat for focus?",
         ],
         "efficiency": [
             f"Should I set eco mode {p['while']}?",

@@ -45,8 +45,8 @@ def get_raw_config():
         return {}
 
 
-# Telegram notification (via Clawdbot gateway)
-# (GATEWAY_URL defined below near notify_clawdbot)
+# Telegram notification (via OpenClaw gateway)
+# (GATEWAY_URL defined below near notify_openclaw)
 
 
 def get_health_status():
@@ -527,11 +527,11 @@ def handle_manual_check(room):
         })
 
     # Manual check bypasses cooldown and motion-aware settings
-    # Add delay between webhooks to avoid overwhelming Clawdbot agent queue
+    # Add delay between webhooks to avoid overwhelming OpenClaw agent queue
     for i, r in enumerate(rooms):
         if i > 0:
             time.sleep(2)  # 2 second delay between rooms
-        notify_clawdbot(r, manual=True)
+        notify_openclaw(r, manual=True)
 
     return {
         "checking": rooms,
@@ -580,8 +580,8 @@ def handle_motion_trigger(room):
     _last_motion_trigger[room] = now
     _last_any_motion_trigger = now
 
-    # Motion triggered! Notify Clawdbot to do the analysis
-    notify_clawdbot(room)
+    # Motion triggered! Notify OpenClaw to do the analysis
+    notify_openclaw(room)
 
     return {
         "triggered": True,
@@ -590,8 +590,8 @@ def handle_motion_trigger(room):
     }
 
 
-GATEWAY_URL = os.environ.get('CLAWDBOT_GATEWAY', 'http://127.0.0.1:18789')
-GATEWAY_HOOK_TOKEN = os.environ.get('CLAWDBOT_HOOK_TOKEN', 'jarvis-motion-2026')
+GATEWAY_URL = os.environ.get('OPENCLAW_GATEWAY', 'http://127.0.0.1:18789')
+GATEWAY_HOOK_TOKEN = os.environ.get('OPENCLAW_HOOK_TOKEN', 'jarvis-motion-2026')
 CRON_JOB_NAME = 'jarvis-poll'
 
 
@@ -616,8 +616,8 @@ def sync_polling_cron(interval_minutes):
         return {"synced": False, "error": str(e)}
 
 
-def notify_clawdbot(room, manual=False):
-    """Call Clawdbot gateway webhook to trigger analysis."""
+def notify_openclaw(room, manual=False):
+    """Call OpenClaw gateway webhook to trigger analysis."""
     import urllib.request
     
     hook_path = "/hooks/jarvis/check" if manual else "/hooks/jarvis/motion"
@@ -639,7 +639,7 @@ def notify_clawdbot(room, manual=False):
             print(f"Webhook triggered: {result}", file=sys.stderr)
             return result
     except Exception as e:
-        print(f"Failed to notify Clawdbot: {e}", file=sys.stderr)
+        print(f"Failed to notify OpenClaw: {e}", file=sys.stderr)
         return {"error": str(e)}
 
 
