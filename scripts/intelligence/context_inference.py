@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from intelligence._helpers import load_json, save_json, get_life_model
 from intelligence.activity_chains import get_activity_chain, chain_signals
-from core.paths import STATE_FILE
+from core.paths import STATE_FILE, EXTERNAL_CONTEXT_FILE
 
 # Temporal learner — adaptive time-based probabilities
 try:
@@ -168,6 +168,20 @@ def infer_context(room_observations: dict, home_state: dict) -> dict:
     activity_chain = get_activity_chain(hours=2)
     chain_sigs = chain_signals(activity_chain)
     signals.extend(chain_sigs)
+
+    # ---- External Context Signals (calendar, email) ----
+    # Read cached external context from external_context.py.
+    # Only use if the cache exists and is < 60 minutes old.
+    try:
+        ext_ctx = load_json(EXTERNAL_CONTEXT_FILE)
+        if ext_ctx and ext_ctx.get("generated_at"):
+            gen_time = datetime.fromisoformat(ext_ctx["generated_at"])
+            age_minutes = (datetime.now() - gen_time).total_seconds() / 60
+            if age_minutes <= 60:
+                ext_signals = ext_ctx.get("signals", [])
+                signals.extend(ext_signals)
+    except Exception:
+        pass  # External context is optional — never crash
 
     # Score each context
     context_scores = {}

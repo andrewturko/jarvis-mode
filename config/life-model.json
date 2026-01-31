@@ -9,7 +9,8 @@
       "signals": [
         "first_motion_after_night",
         "bedroom_to_kitchen",
-        "morning_hours"
+        "morning_hours",
+        "calendar_event_soon"
       ],
       "typical_needs": [
         "comfort",
@@ -96,7 +97,8 @@
       "signals": [
         "office_or_desk_presence",
         "daytime_hours",
-        "minimal_movement"
+        "minimal_movement",
+        "calendar_meeting"
       ],
       "typical_needs": [
         "focus",
@@ -114,7 +116,8 @@
       "signals": [
         "kitchen_presence",
         "extended_kitchen_activity",
-        "meal_time_hours"
+        "meal_time_hours",
+        "calendar_dinner_reservation"
       ],
       "typical_needs": [
         "background_entertainment",
@@ -172,7 +175,8 @@
         "stationary",
         "tv_or_couch",
         "chain_winding_down",
-        "chain_full_meal_flow"
+        "chain_full_meal_flow",
+        "calendar_empty_evening"
       ],
       "typical_needs": [
         "entertainment",
@@ -191,7 +195,8 @@
         "living_room_empty",
         "lights_dimming",
         "chain_winding_down",
-        "chain_bedroom_after_evening"
+        "chain_bedroom_after_evening",
+        "calendar_event_soon"
       ],
       "typical_needs": [
         "transition",
@@ -222,7 +227,8 @@
       "description": "Entertaining guests",
       "signals": [
         "multiple_people_detected",
-        "social_gathering_indicators"
+        "social_gathering_indicators",
+        "calendar_social"
       ],
       "typical_needs": [
         "ambiance",
@@ -302,7 +308,10 @@
       "signals": [
         "entry_presence",
         "multiple_room_transitions",
-        "gathering_items"
+        "gathering_items",
+        "calendar_event_soon",
+        "calendar_dinner_reservation",
+        "calendar_social"
       ],
       "typical_needs": [
         "transition",
