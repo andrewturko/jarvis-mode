@@ -264,6 +264,30 @@ class HAService:
             logger.error("get_all_states_error", error=str(e), exc_info=True)
             return []
 
+    def get_person_state(self, person_entity: str = "person.andrew_turko") -> Dict:
+        """
+        Get person presence state from HA.
+
+        Returns:
+            Dict with 'state' (home/not_home/zone_name), 'latitude', 'longitude',
+            'gps_accuracy', 'source' (device tracker), 'friendly_name'.
+            Empty dict on error.
+        """
+        data = self.get_entity_state(person_entity)
+        if not data:
+            return {}
+
+        attrs = data.get("attributes", {})
+        return {
+            "state": data.get("state", "unknown"),  # home, not_home, or zone name
+            "home": data.get("state", "") == "home",
+            "latitude": attrs.get("latitude"),
+            "longitude": attrs.get("longitude"),
+            "gps_accuracy": attrs.get("gps_accuracy"),
+            "source": attrs.get("source", ""),
+            "friendly_name": attrs.get("friendly_name", ""),
+        }
+
     def is_motion_detected(self, motion_sensor: str) -> Optional[bool]:
         """
         Check if motion is detected via binary sensor.
@@ -317,6 +341,7 @@ class HAService:
             "climate": {},
             "covers_open": [],
             "covers_closed": [],
+            "presence": self.get_person_state(),
         }
 
         for entity in states:

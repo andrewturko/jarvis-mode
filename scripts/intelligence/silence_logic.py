@@ -64,6 +64,22 @@ def should_stay_silent(
     confidence = context.get("confidence", 0)
     previous_context = context.get("previous_context")
 
+    # Rule -1: Away from home — suppress home-required suggestions only
+    # Presence comes from HA person entity (GPS via iPhone)
+    # Suggestions with home_required=True need physical presence to be relevant.
+    # External context (calendar, email, weather, content) passes through.
+    # Default: suggestions with a device capability are home_required unless
+    # explicitly marked otherwise.
+    presence = context.get("presence", {})
+    if presence and not presence.get("home", True):
+        away_ok = [s for s in suggestions
+                   if not s.get("home_required", bool(s.get("requires", {}).get("capability")))
+                   or s.get("priority") == "urgent"]
+        if away_ok:
+            suggestions[:] = away_ok
+        else:
+            return True, f"Away from home ({presence.get('state', 'not_home')})"
+
     # Rule 0: Arrival bypass - suggest when someone arrives home AND confidence is reasonable
     # A 0.03-confidence "arrival" is noise, not a real arrival
     ARRIVAL_MIN_CONFIDENCE = 0.2

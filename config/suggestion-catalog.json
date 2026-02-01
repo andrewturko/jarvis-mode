@@ -44,19 +44,6 @@
             "Chef mode activated. Holler if you need a sous-chef.",
             "You're on a roll in there. I'll stay out of your way."
           ]
-        },
-        {
-          "action": "cooking_ventilation",
-          "type": "comfort",
-          "intent": "offer",
-          "requires": {"capability": "climate"},
-          "priority": "low",
-          "base_weight": 0.4,
-          "cooldown_hours": 6,
-          "examples": [
-            "Kitchen might be getting warm — want me to adjust the temperature?",
-            "Want me to bump the AC while you cook?"
-          ]
         }
       ]
     },

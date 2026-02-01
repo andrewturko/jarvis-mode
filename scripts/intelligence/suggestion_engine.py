@@ -369,7 +369,6 @@ def get_suggestions(context_result: dict, capabilities: dict = None,
                 "context": context,
                 "tone": tone,
                 "examples": examples,
-                "environmental_cues": ["time_of_day", "duration_in_room"],
             },
         }
         # Carry through requires (for capability-level cooldown) and extra fields

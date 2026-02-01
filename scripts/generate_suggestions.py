@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Generate suggestion catalog entries from capabilities + life-model.
+Generate suggestion catalog entries from capabilities + life-model using LLM.
 
-Walks the life-model's semantic chain (context -> needs -> capability_types),
-checks what the human-authored catalog already covers, and generates entries
-for the gaps. Output goes to data/generated-suggestions.json.
+Feeds the life-model's semantic structure, home capabilities, and existing
+manual catalog to an LLM, which reasons about which suggestions actually
+make sense. Output goes to data/generated-suggestions.json.
 
 Run directly or called from refresh-inventory.py after capabilities update.
 """
 
+import json
+import os
 import sys
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -22,270 +25,33 @@ from intelligence._helpers import load_json, save_json
 
 
 # ---------------------------------------------------------------------------
-# Context-aware phrase fragments for natural example generation
+# Gateway resolution (same pattern as snapshot_service.py)
 # ---------------------------------------------------------------------------
-# Phrases describe ACTIVITY only — never time-of-day.
-# Time is a separate primitive provided at runtime via time_natural.
-CONTEXT_PHRASES = {
-    "waking_up":       {"while": "as you get up",        "setting": "to start your day"},
-    "morning_routine": {"while": "while you get ready",  "setting": "while you get ready"},
-    "cooking":         {"while": "while you cook",       "setting": "for cooking"},
-    "eating":          {"while": "during your meal",     "setting": "for your meal"},
-    "post_meal":       {"while": "after your meal",      "setting": "post-meal"},
-    "working":         {"while": "while you work",       "setting": "for focus"},
-    "break":           {"while": "during your break",    "setting": "while you recharge"},
-    "winding_down":    {"while": "as you wind down",     "setting": "to wind down"},
-    "going_to_bed":    {"while": "before bed",           "setting": "for bed"},
-    "sleeping":        {"while": "while you sleep",      "setting": "while you sleep"},
-    "arriving_home":   {"while": "now that you're home", "setting": "for your return"},
-    "leaving_home":    {"while": "before you head out",  "setting": "while you're away"},
-    "going_out":       {"while": "before you head out",  "setting": "while you're away"},
-    "away":            {"while": "while you're out",     "setting": "while nobody's home"},
-    "guests_over":     {"while": "while you have guests","setting": "for the group"},
-    "reading":         {"while": "while you read",       "setting": "for reading"},
-    "gaming":          {"while": "while you game",       "setting": "for gaming"},
-    "exercising":      {"while": "during your workout",  "setting": "for the workout"},
-}
 
-# Need -> suggestion type mapping
-NEED_TYPE_MAP = {
-    "comfort": "comfort",
-    "entertainment": "entertainment",
-    "background_entertainment": "ambiance",
-    "cleanliness": "cleanliness",
-    "ambiance": "ambiance",
-    "focus": "comfort",
-    "transition": "transition",
-    "security": "security",
-    "efficiency": "efficiency",
-    "quiet": "comfort",
-    "hospitality": "ambiance",
-    "information": "information",
-    "energy": "comfort",
-    "assistance": "comfort",
-    "minimal_interruption": "comfort",
-}
+def _resolve_gateway():
+    """Resolve the openclaw gateway URL and auth credentials."""
+    gateway_url = os.environ.get("OPENCLAW_GATEWAY_URL")
+    gateway_password = os.environ.get("OPENCLAW_GATEWAY_PASSWORD")
+
+    if not gateway_url:
+        config_path = Path.home() / ".openclaw" / "openclaw.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+                gw = config.get("gateway", {})
+                port = gw.get("port", 18789)
+                gateway_url = f"http://localhost:{port}"
+                if not gateway_password:
+                    gateway_password = gw.get("auth", {}).get("password")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    return gateway_url, gateway_password
 
 
 # ---------------------------------------------------------------------------
-# Example generators per capability type
-# ---------------------------------------------------------------------------
-
-def _phrases(context_name):
-    return CONTEXT_PHRASES.get(context_name, {"while": "", "setting": ""})
-
-
-def _lighting_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    by_need = {
-        "comfort": [
-            f"Want me to adjust the lights {p['setting']}?",
-            f"Lights {p['setting']}?",
-        ],
-        "ambiance": [
-            f"Set the mood {p['setting']}?",
-            f"Want some ambient lighting {p['while']}?",
-        ],
-        "focus": [
-            f"Bright lights {p['setting']}?",
-            f"Want me to set the lights for focus?",
-        ],
-        "transition": [
-            f"Should I adjust the lights {p['while']}?",
-            f"Lights {p['setting']}?",
-        ],
-        "efficiency": [
-            f"Want me to turn off the lights {p['while']}?",
-            f"Should I kill the lights {p['setting']}?",
-        ],
-        "hospitality": [
-            f"Want me to set the lights {p['setting']}?",
-            f"Some welcoming lights {p['setting']}?",
-        ],
-    }
-    return by_need.get(need, by_need["comfort"])
-
-
-def _music_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    by_need = {
-        "entertainment": [
-            f"Want some music {p['while']}?",
-            f"Music {p['setting']}?",
-        ],
-        "background_entertainment": [
-            f"Some background music {p['while']}?",
-            f"Want something playing {p['while']}?",
-        ],
-        "ambiance": [
-            f"Set the mood with some music {p['setting']}?",
-            f"Want some ambient tunes {p['while']}?",
-        ],
-        "hospitality": [
-            f"Music {p['setting']}?",
-            f"Want me to put something on {p['setting']}?",
-        ],
-    }
-    return by_need.get(need, by_need.get("entertainment", ["Want some music?"]))
-
-
-def _tv_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    return [
-        f"Want to watch something {p['while']}?",
-        f"TV {p['setting']}?",
-    ]
-
-
-def _climate_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    by_need = {
-        "comfort": [
-            f"Want me to adjust the temperature {p['setting']}?",
-            f"Temperature good, or should I tweak it?",
-        ],
-        "focus": [
-            f"Want me to optimize the temperature {p['setting']}?",
-            f"Should I tweak the thermostat for focus?",
-        ],
-        "efficiency": [
-            f"Should I set eco mode {p['while']}?",
-            f"I can dial back the thermostat {p['setting']}.",
-        ],
-    }
-    return by_need.get(need, by_need["comfort"])
-
-
-def _vacuum_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    has_routines = any(
-        isinstance(d, dict) and d.get("routines")
-        for d in cap_data.get("devices", {}).values()
-    )
-    if has_routines:
-        return [
-            f"Good time for a vacuum run {p['setting']}?",
-            f"Want me to send the robot {p['while']}?",
-        ]
-    return [
-        f"Run the vacuum {p['while']}?",
-        f"Want a clean {p['setting']}?",
-    ]
-
-
-def _shades_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    by_need = {
-        "comfort": [
-            f"Want me to adjust the shades {p['setting']}?",
-            f"Shades {p['setting']}?",
-        ],
-        "ambiance": [
-            f"Should I set the shades {p['setting']}?",
-            f"Shades for the mood {p['setting']}?",
-        ],
-        "efficiency": [
-            f"Close the shades {p['while']}?",
-            f"Want the shades down {p['setting']}?",
-        ],
-    }
-    return by_need.get(need, by_need["comfort"])
-
-
-def _appliance_examples(context_name, need, cap_data):
-    p = _phrases(context_name)
-    appliance_names = [n for n in cap_data if not n.startswith("_")] if isinstance(cap_data, dict) else []
-    if appliance_names:
-        name = appliance_names[0]
-        return [
-            f"Want me to start the {name} {p['while']}?",
-            f"Good time to run the {name}?",
-        ]
-    return [
-        f"Want me to run an appliance {p['while']}?",
-        f"Anything to run {p['setting']}?",
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Capability templates — maps each type to its generation behavior
-# ---------------------------------------------------------------------------
-CAPABILITY_TEMPLATES = {
-    "lighting": {
-        "action_for_need": {
-            "comfort": "adjust_lights", "ambiance": "set_mood_lights",
-            "focus": "focus_lights", "transition": "transition_lights",
-            "efficiency": "lights_off", "hospitality": "welcoming_lights",
-        },
-        "default_action": "adjust_lights",
-        "state_requirement": {},
-        "default_cooldown": 6,
-        "example_fn": _lighting_examples,
-    },
-    "music": {
-        "action_for_need": {
-            "entertainment": "play_music", "background_entertainment": "play_bg_music",
-            "ambiance": "play_ambient_music", "hospitality": "play_social_music",
-        },
-        "default_action": "play_music",
-        "state_requirement": {"state": "music_not_playing"},
-        "default_cooldown": 4,
-        "example_fn": _music_examples,
-    },
-    "tv": {
-        "action_for_need": {"entertainment": "suggest_tv", "comfort": "suggest_tv"},
-        "default_action": "suggest_tv",
-        "state_requirement": {"state": "media_not_playing"},
-        "default_cooldown": 6,
-        "example_fn": _tv_examples,
-    },
-    "climate": {
-        "action_for_need": {
-            "comfort": "adjust_temperature", "focus": "optimize_temperature",
-            "efficiency": "eco_temperature", "transition": "adjust_climate",
-        },
-        "default_action": "adjust_climate",
-        "state_requirement": {},
-        "default_cooldown": 8,
-        "example_fn": _climate_examples,
-    },
-    "vacuum": {
-        "action_for_need": {"cleanliness": "run_vacuum", "efficiency": "schedule_vacuum"},
-        "default_action": "run_vacuum",
-        "state_requirement": {},
-        "default_cooldown": 12,
-        "example_fn": _vacuum_examples,
-    },
-    "shades": {
-        "action_for_need": {
-            "comfort": "adjust_shades", "ambiance": "set_shades",
-            "efficiency": "close_shades", "transition": "adjust_shades",
-        },
-        "default_action": "adjust_shades",
-        "state_requirement": {},
-        "state_requirement_by_need": {
-            "efficiency": {
-                "state": {"capability": "shades", "condition": "any_in_state", "target": "open", "scope": "_any"}
-            },
-        },
-        "default_cooldown": 8,
-        "example_fn": _shades_examples,
-    },
-    "appliances": {
-        "action_for_need": {
-            "cleanliness": "run_appliance", "efficiency": "run_appliance",
-            "transition": "run_appliance",
-        },
-        "default_action": "run_appliance",
-        "state_requirement": {},
-        "default_cooldown": 12,
-        "example_fn": _appliance_examples,
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# Core generation logic
+# Coverage index (kept from original)
 # ---------------------------------------------------------------------------
 
 def build_coverage_index(human_catalog):
@@ -301,36 +67,288 @@ def build_coverage_index(human_catalog):
     return covered
 
 
-def generate_entry(context_name, need, cap_type, cap_data, template):
-    """Generate a single suggestion entry for a context/capability gap."""
-    action_verb = template["action_for_need"].get(need, template["default_action"])
-    action_key = f"gen_{action_verb}_{context_name}"
-    sug_type = NEED_TYPE_MAP.get(need, "comfort")
+# ---------------------------------------------------------------------------
+# Prompt construction
+# ---------------------------------------------------------------------------
 
-    examples = template["example_fn"](context_name, need, cap_data)
+def _build_prompt(life_model, capabilities, human_catalog, covered):
+    """Build the LLM prompt with full context about the home and model."""
 
-    entry = {
-        "action": action_key,
-        "type": sug_type,
-        "intent": "offer",
-        "requires": {"capability": cap_type},
-        "priority": "low",
-        "base_weight": 0.6,
-        "cooldown_hours": template["default_cooldown"],
-        "examples": examples,
-        "_generated": True,
-        "_generation_source": f"{context_name}/{need}/{cap_type}",
+    # Summarize contexts
+    contexts_summary = {}
+    for name, ctx in life_model.get("contexts", {}).items():
+        contexts_summary[name] = {
+            "description": ctx.get("description", ""),
+            "typical_needs": ctx.get("typical_needs", []),
+            "transitions_to": ctx.get("transitions_to", []),
+        }
+
+    # Summarize capabilities with room placement
+    caps_summary = {}
+    for cap_type, cap_data in capabilities.items():
+        if cap_type.startswith("_"):
+            continue
+        rooms = (
+            cap_data.get("rooms")
+            or cap_data.get("speakers")
+            or cap_data.get("indoor")
+            or cap_data.get("devices")
+        )
+        if isinstance(rooms, dict):
+            caps_summary[cap_type] = {"rooms": list(rooms.keys())}
+        else:
+            caps_summary[cap_type] = {"global": True}
+
+    # Summarize what the manual catalog already covers
+    covered_summary = {}
+    for (ctx, cap), actions in covered.items():
+        covered_summary.setdefault(ctx, [])
+        covered_summary[ctx].append(f"{cap}: {', '.join(actions)}")
+
+    # Needs definitions
+    needs_summary = {
+        name: {
+            "description": n.get("description", ""),
+            "capability_types": n.get("capability_types", []),
+        }
+        for name, n in life_model.get("needs", {}).items()
     }
 
-    # Per-need state requirement takes priority over default
-    state_req = (
-        template.get("state_requirement_by_need", {}).get(need)
-        or template.get("state_requirement", {})
-    )
-    if state_req:
-        entry["requires"].update(state_req)
+    prompt = f"""You are generating a suggestion catalog for a smart home AI assistant called Jarvis.
 
-    return entry
+## Home capabilities (devices and room placement)
+{json.dumps(caps_summary, indent=2)}
+
+## Life-model contexts (what the user might be doing)
+{json.dumps(contexts_summary, indent=2)}
+
+## Needs → capability types (semantic model)
+{json.dumps(needs_summary, indent=2)}
+
+## Already covered by manual catalog (DO NOT duplicate these)
+{json.dumps(covered_summary, indent=2)}
+
+## Available state requirements (use when appropriate)
+- "music_not_playing" — only suggest music if not already playing
+- "media_not_playing" — only suggest TV/media if nothing is playing
+- "room_lights_off" — room lights must be off (suggest turning on)
+- "room_lights_on" — room lights must be on (suggest dimming/adjusting)
+- "room_lights_not_bright" — lights on but below 80% (suggest brightening)
+- {{"condition": "any_in_state", "target": "closed", "scope": "_current", "capability": "shades"}} — shades in current room must be closed
+- {{"condition": "any_in_state", "target": "open", "scope": "_current", "capability": "shades"}} — shades in current room must be open
+- {{"condition": "any_in_state", "target": "open", "scope": "_any", "capability": "shades"}} — any shades in home must be open
+
+## Instructions
+
+Generate suggestions for context + capability gaps NOT covered by the manual catalog.
+
+For each context, think like a thoughtful butler: what actions would genuinely help or enhance this moment? Generate a suggestion when the context provides a real reason for the action — the person's activity, transition, or situation should motivate it.
+
+Ask yourself:
+- Does the context CREATE a reason? (leaving home → eco mode: YES, nobody needs climate running)
+- Does the context ENHANCE with this? (gaming + dim lights: YES, reduces glare and sets the mood)
+- Or does it merely COINCIDE? (cooking + adjust thermostat: NO, cooking says nothing about temperature)
+
+Be thorough — cover each context with the capabilities that genuinely serve it. Don't be overly conservative. If a reasonable butler would think of it, include it.
+
+GOOD suggestions (generate these kinds):
+- waking_up + lights: Brighten the room to help wake up
+- cooking + music: Background music enhances cooking
+- leaving_home + climate eco: Save energy while away
+- away + lights off: No one needs lights on
+- away + eco mode: No one needs full climate
+- winding_down + dim lights: Softer lighting for evening relaxation
+- going_to_bed + close shades: Privacy and darkness for sleep
+- going_out + lights off: Turn off lights before leaving
+- gaming + music: Background music for gaming
+- gaming + dim lights: Reduce glare, set the mood
+- exercising + music: Upbeat music for workouts
+- guests_over + ambient music: Social atmosphere
+
+BAD suggestions (do NOT generate these):
+- cooking + climate adjust: Cooking doesn't mean the temperature is wrong
+- gaming + shades: Gaming doesn't affect window coverings
+- sleeping + anything: Person is asleep — don't prompt them
+- eating + climate: Eating doesn't mean temp needs adjusting
+- reading + shades: Reading doesn't inherently mean shades need changing
+- gaming + TV: The gaming context is DETECTED by the TV being on — TV is already in use
+- exercising + shades: Exercising doesn't affect shades
+- exercising + climate: Exercising doesn't mean the thermostat is wrong
+
+For state requirements: always use them when a suggestion only makes sense if a device is in a specific state. Music suggestions should always require music_not_playing. Shade suggestions should check whether shades are open or closed.
+
+## Output format
+
+Reply with ONLY a JSON object (no markdown fences, no explanation):
+
+{{
+  "contexts": {{
+    "context_name": {{
+      "suggestions": [
+        {{
+          "action": "gen_descriptive_action_name",
+          "type": "comfort|entertainment|ambiance|cleanliness|transition|efficiency|observation",
+          "intent": "offer|inform",
+          "requires": {{"capability": "capability_type", "state": "optional_state_requirement"}},
+          "priority": "low|medium",
+          "base_weight": 0.6,
+          "cooldown_hours": 6,
+          "examples": ["Short casual message", "Another short message"]
+        }}
+      ]
+    }}
+  }}
+}}
+
+Rules:
+- action names must start with "gen_" and be unique snake_case
+- examples: 2-3 short messages (under 12 words each), casual tone, varied phrasing
+- base_weight: 0.3-1.0 (higher = more eager to suggest)
+- cooldown_hours: 4-12 typical
+- Do NOT generate anything for the "sleeping" context
+- Do NOT duplicate actions already in the manual catalog
+- Include state requirements wherever they make sense"""
+
+    return prompt
+
+
+# ---------------------------------------------------------------------------
+# Schema validation
+# ---------------------------------------------------------------------------
+
+VALID_TYPES = {
+    "comfort", "entertainment", "ambiance", "cleanliness", "transition",
+    "efficiency", "security", "information", "observation",
+}
+VALID_INTENTS = {"offer", "inform", "observe"}
+VALID_PRIORITIES = {"low", "medium", "high"}
+LEGACY_STATE_TOKENS = {
+    "music_not_playing", "media_not_playing", "kitchen_lights_off",
+    "room_lights_off", "room_lights_on", "room_lights_not_bright",
+}
+VALID_CONDITIONS = {"any_in_state", "none_in_state", "all_in_state"}
+
+
+def _validate_state_req(state_req):
+    """Validate a state requirement. Returns True if valid."""
+    if isinstance(state_req, str):
+        return state_req in LEGACY_STATE_TOKENS
+    if isinstance(state_req, dict):
+        condition = state_req.get("condition")
+        return condition in VALID_CONDITIONS and "target" in state_req
+    return False
+
+
+def validate_and_clean(raw_contexts, capabilities, covered_actions):
+    """Validate LLM output and return cleaned contexts dict.
+
+    Returns (cleaned_contexts, warnings) where warnings is a list of strings.
+    Invalid individual entries are dropped; valid ones are kept.
+    """
+    valid_caps = set(k for k in capabilities if not k.startswith("_"))
+    cleaned = {}
+    seen_actions = set()
+    warnings = []
+
+    for ctx_name, ctx_data in raw_contexts.items():
+        suggestions = ctx_data.get("suggestions", [])
+        valid_suggestions = []
+
+        for entry in suggestions:
+            action = entry.get("action", "")
+
+            # Required: action name
+            if not action or not isinstance(action, str):
+                warnings.append(f"Skipped entry in {ctx_name}: missing/invalid action")
+                continue
+
+            # Required: valid capability
+            requires = entry.get("requires", {})
+            cap_req = requires.get("capability") if isinstance(requires, dict) else None
+            if not cap_req or cap_req not in valid_caps:
+                warnings.append(f"Skipped {action}: invalid capability '{cap_req}'")
+                continue
+
+            # Required: examples
+            examples = entry.get("examples", [])
+            if not examples or not isinstance(examples, list):
+                warnings.append(f"Skipped {action}: missing examples")
+                continue
+
+            # Unique action name (no collisions with manual catalog or within batch)
+            if action in seen_actions or action in covered_actions:
+                warnings.append(f"Skipped {action}: duplicate action name")
+                continue
+            seen_actions.add(action)
+
+            # Validate state requirement if present; strip if invalid
+            state_req = requires.get("state")
+            if state_req and not _validate_state_req(state_req):
+                warnings.append(f"Warning {action}: removed invalid state requirement")
+                entry["requires"] = {"capability": cap_req}
+
+            # Validate and apply defaults
+            entry.setdefault("type", "comfort")
+            if entry["type"] not in VALID_TYPES:
+                entry["type"] = "comfort"
+
+            entry.setdefault("intent", "offer")
+            if entry["intent"] not in VALID_INTENTS:
+                entry["intent"] = "offer"
+
+            entry.setdefault("priority", "low")
+            if entry["priority"] not in VALID_PRIORITIES:
+                entry["priority"] = "low"
+
+            entry.setdefault("base_weight", 0.6)
+            try:
+                entry["base_weight"] = float(entry["base_weight"])
+                entry["base_weight"] = max(0.1, min(1.0, entry["base_weight"]))
+            except (ValueError, TypeError):
+                entry["base_weight"] = 0.6
+
+            entry.setdefault("cooldown_hours", 6)
+            try:
+                entry["cooldown_hours"] = int(entry["cooldown_hours"])
+                entry["cooldown_hours"] = max(1, min(24, entry["cooldown_hours"]))
+            except (ValueError, TypeError):
+                entry["cooldown_hours"] = 6
+
+            # Clean examples to strings
+            entry["examples"] = [str(e) for e in examples if e]
+
+            # Stamp as generated
+            entry["_generated"] = True
+            entry["_generation_source"] = f"llm/{ctx_name}/{cap_req}"
+
+            valid_suggestions.append(entry)
+
+        if valid_suggestions:
+            cleaned[ctx_name] = {"suggestions": valid_suggestions}
+
+    return cleaned, warnings
+
+
+# ---------------------------------------------------------------------------
+# Music favorites (structured — doesn't need LLM reasoning)
+# ---------------------------------------------------------------------------
+
+_CONTEXT_PHRASES = {
+    "waking_up":       {"while": "as you get up",        "setting": "to start your day"},
+    "morning_routine": {"while": "while you get ready",  "setting": "while you get ready"},
+    "cooking":         {"while": "while you cook",       "setting": "for cooking"},
+    "eating":          {"while": "during your meal",     "setting": "for your meal"},
+    "post_meal":       {"while": "after your meal",      "setting": "post-meal"},
+    "working":         {"while": "while you work",       "setting": "for focus"},
+    "break":           {"while": "during your break",    "setting": "while you recharge"},
+    "winding_down":    {"while": "as you wind down",     "setting": "to wind down"},
+    "going_to_bed":    {"while": "before bed",           "setting": "for bed"},
+    "arriving_home":   {"while": "now that you're home", "setting": "for your return"},
+    "leaving_home":    {"while": "before you head out",  "setting": "while you're away"},
+    "going_out":       {"while": "before you head out",  "setting": "while you're away"},
+    "away":            {"while": "while you're out",     "setting": "while nobody's home"},
+    "guests_over":     {"while": "while you have guests","setting": "for the group"},
+}
 
 
 def generate_favorite_entries(life_model, capabilities, covered):
@@ -349,7 +367,7 @@ def generate_favorite_entries(life_model, capabilities, covered):
             if (context_name, "music") in covered:
                 continue
 
-            p = _phrases(context_name)
+            p = _CONTEXT_PHRASES.get(context_name, {"while": "", "setting": ""})
             entry = {
                 "action": f"gen_play_favorite_{fav_name}_{context_name}",
                 "type": "ambiance",
@@ -372,60 +390,107 @@ def generate_favorite_entries(life_model, capabilities, covered):
     return results
 
 
+# ---------------------------------------------------------------------------
+# Core generation
+# ---------------------------------------------------------------------------
+
 def generate():
-    """Main generation: walk life-model chain, fill gaps, write output."""
+    """Main generation: call LLM to produce contextually appropriate suggestions."""
     life_model = load_json(LIFE_MODEL_FILE)
     capabilities = load_json(CAPABILITIES_FILE)
     human_catalog = load_json(SUGGESTION_CATALOG_FILE)
 
     covered = build_coverage_index(human_catalog)
-    needs_map = life_model.get("needs", {})
-    contexts = life_model.get("contexts", {})
+
+    # All manual catalog action names for dedup
+    covered_actions = set()
+    for ctx_data in human_catalog.get("contexts", {}).values():
+        for s in ctx_data.get("suggestions", []):
+            covered_actions.add(s.get("action", ""))
+
+    # Resolve gateway
+    gateway_url, gateway_password = _resolve_gateway()
 
     generated_contexts = {}
+    llm_used = False
+
+    if gateway_url:
+        prompt = _build_prompt(life_model, capabilities, human_catalog, covered)
+
+        try:
+            request_body = json.dumps({
+                "model": "anthropic/claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+                "messages": [{
+                    "role": "user",
+                    "content": prompt,
+                }],
+            }).encode("utf-8")
+
+            headers = {"Content-Type": "application/json"}
+            if gateway_password:
+                headers["Authorization"] = f"Bearer {gateway_password}"
+
+            req = urllib.request.Request(
+                f"{gateway_url}/v1/chat/completions",
+                data=request_body,
+                headers=headers,
+            )
+
+            print("Calling LLM for suggestion generation...")
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                result = json.loads(resp.read().decode())
+
+            text = (
+                result.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+
+            # Handle markdown wrapping
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+
+            parsed = json.loads(text.strip())
+            raw_contexts = parsed.get("contexts", {})
+
+            # Validate and clean
+            generated_contexts, warnings = validate_and_clean(
+                raw_contexts, capabilities, covered_actions,
+            )
+
+            for w in warnings:
+                print(f"  \u26a0 {w}")
+
+            llm_used = True
+
+        except json.JSONDecodeError as e:
+            print(f"  \u2717 LLM returned invalid JSON: {e}")
+            print("  Keeping existing generated-suggestions.json")
+        except Exception as e:
+            print(f"  \u2717 LLM call failed: {e}")
+            print("  Keeping existing generated-suggestions.json")
+    else:
+        print("  No gateway available \u2014 keeping existing generated-suggestions.json")
+
+    if not llm_used:
+        # Fallback: preserve existing file, still update favorites below
+        existing = load_json(GENERATED_SUGGESTIONS_FILE)
+        generated_contexts = existing.get("contexts", {})
+
+    # Music favorites (structured, doesn't need LLM)
     seen_actions = set()
+    for ctx_data in generated_contexts.values():
+        for s in ctx_data.get("suggestions", []):
+            seen_actions.add(s.get("action", ""))
 
-    # Needs that mean "reduce/suppress" — don't generate activation suggestions
-    suppression_needs = {"quiet", "minimal_interruption", "security"}
-
-    for ctx_name, ctx_def in contexts.items():
-        typical_needs = ctx_def.get("typical_needs", [])
-
-        for need in typical_needs:
-            if need in suppression_needs:
-                continue
-            need_def = needs_map.get(need, {})
-            cap_types = need_def.get("capability_types", [])
-
-            for cap_type in cap_types:
-                if cap_type not in capabilities:
-                    continue
-                if (ctx_name, cap_type) in covered:
-                    continue
-
-                template = CAPABILITY_TEMPLATES.get(cap_type)
-                if not template:
-                    continue
-
-                entry = generate_entry(
-                    ctx_name, need, cap_type,
-                    capabilities[cap_type], template,
-                )
-
-                # Deduplicate within generated output
-                if entry["action"] in seen_actions:
-                    continue
-                seen_actions.add(entry["action"])
-
-                generated_contexts.setdefault(ctx_name, {"suggestions": []})
-                generated_contexts[ctx_name]["suggestions"].append(entry)
-
-    # Music favorites
     fav_entries = generate_favorite_entries(life_model, capabilities, covered)
     for ctx_name, entries in fav_entries.items():
         generated_contexts.setdefault(ctx_name, {"suggestions": []})
         for entry in entries:
-            if entry["action"] not in seen_actions:
+            if entry["action"] not in seen_actions and entry["action"] not in covered_actions:
                 seen_actions.add(entry["action"])
                 generated_contexts[ctx_name]["suggestions"].append(entry)
 
@@ -436,6 +501,7 @@ def generate():
             "capabilities": capabilities.get("_last_updated", "unknown"),
             "life_model": "static",
         },
+        "_generation_method": "llm" if llm_used else "cached",
         "contexts": generated_contexts,
     }
 
@@ -443,7 +509,8 @@ def generate():
 
     total = sum(len(c["suggestions"]) for c in generated_contexts.values())
     ctx_count = len(generated_contexts)
-    print(f"Generated {total} suggestions across {ctx_count} contexts -> {GENERATED_SUGGESTIONS_FILE}")
+    method = "LLM" if llm_used else "cached"
+    print(f"Generated {total} suggestions across {ctx_count} contexts ({method}) -> {GENERATED_SUGGESTIONS_FILE}")
     for ctx_name, ctx_data in sorted(generated_contexts.items()):
         actions = [s["action"] for s in ctx_data["suggestions"]]
         print(f"  {ctx_name}: {', '.join(actions)}")

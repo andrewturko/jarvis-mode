@@ -723,9 +723,13 @@ class JarvisCLI:
         recent_decisions = self.state_manager.get_decision_log(limit=5)
         last_decision = recent_decisions[0] if recent_decisions else None
 
+        # Inject presence into context for silence logic
+        context_with_presence = dict(context_inference)
+        context_with_presence["presence"] = home_state.get("presence", {})
+
         # Determine silence logic
         should_be_silent, silence_reason = life_context.should_stay_silent(
-            context_inference,
+            context_with_presence,
             suggestions,
             recent_decisions,
             confidence_threshold=self.config.confidence_threshold,
@@ -791,6 +795,7 @@ class JarvisCLI:
                 "media_players": home_state.get("media_playing", []),
                 "covers_open": home_state.get("covers_open", []),
                 "covers_closed": home_state.get("covers_closed", []),
+                "presence": home_state.get("presence", {}),
             },
 
             "learned_patterns": {
